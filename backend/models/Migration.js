@@ -27,7 +27,7 @@ const migrationSchema = new mongoose.Schema(
 
     method: {
       type: String,
-      enum: ["ast-based", "ai-assisted"],
+      enum: ["ast-based", "ai-assisted", "dual-validated"],
       required: true
     },
 

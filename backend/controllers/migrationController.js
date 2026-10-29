@@ -8,7 +8,8 @@ export const migrateCode = async (req, res) => {
     const {
       sourceCode,
       sourceLanguage,
-      targetLanguage
+      targetLanguage,
+      stdin = ""
     } = req.body;
 
     if (
@@ -32,7 +33,14 @@ export const migrateCode = async (req, res) => {
       });
     }
 
-    const validation = await dualValidateCode(sourceCode);
+    if (typeof stdin !== "string" || stdin.length > 4000) {
+      return res.status(400).json({
+        success: false,
+        message: "Custom input must be a string (max 4000 characters)"
+      });
+    }
+
+    const validation = await dualValidateCode(sourceCode, stdin);
 
     if (!validation.validated) {
       return res.status(422).json({
