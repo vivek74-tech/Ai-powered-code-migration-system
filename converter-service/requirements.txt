@@ -1,3 +1,4 @@
 fastapi
 uvicorn
-pydanticrequests
+pydantic
+requests
