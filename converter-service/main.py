@@ -18,7 +18,11 @@ def clean_cpp(code):
 
     return code
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
+import os
+import secrets, Header
+import os
+import secrets
 from pydantic import BaseModel, Field
 from converter import PythonToCppConverter, ConversionError
 
@@ -58,7 +62,14 @@ def convert(request: ConversionRequest):
 
 
 @app.post("/dual-validate")
-def dual_validate(request: ConversionRequest):
+def dual_validate(
+    request: ConversionRequest,
+    x_converter_key: str = Header(default="")
+):
+    expected = os.getenv("CONVERTER_API_KEY", "")
+    if not expected or not secrets.compare_digest(x_converter_key, expected):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     from dual_validator import validate_dual_conversion
 
     try:

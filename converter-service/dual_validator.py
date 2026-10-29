@@ -1,4 +1,5 @@
 import requests
+from private_network import private_post
 
 from converter import PythonToCppConverter
 from ollama_converter import convert_with_ollama, repair_cpp_with_ollama
@@ -37,9 +38,9 @@ def fix_cpp_headers(code):
 
 
 def execute(language, code, stdin=''):
-    response = requests.post(
+    response = private_post(
         WORKER_URL,
-        json={"language": language, "code": code, "stdin": stdin},
+        payload={"language": language, "code": code, "stdin": stdin},
         headers={"X-Worker-Key": os.getenv("WORKER_API_KEY", "")},
         timeout=35
     )

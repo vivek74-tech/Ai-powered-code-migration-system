@@ -38,7 +38,7 @@ export const dualValidateCode = async (sourceCode, stdin = "") => {
         const response = await axios.post(
             `${process.env.CONVERTER_URL}/dual-validate`,
             { sourceCode, stdin },
-            { timeout: 120000 },
+            { timeout: 120000, headers: { "X-Converter-Key": process.env.CONVERTER_API_KEY } },
         );
 
         return response.data;

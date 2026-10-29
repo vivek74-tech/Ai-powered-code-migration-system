@@ -1,8 +1,18 @@
+﻿import os
 
+
+def ollama_post(url, **kwargs):
+    proxies = None
+    if os.getenv("TS_AUTHKEY"):
+        proxies = {
+            "http": "socks5h://127.0.0.1:1055",
+            "https": "socks5h://127.0.0.1:1055"
+        }
+    return requests.post(url, proxies=proxies, **kwargs)
 import re
 import requests
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 MODEL = "qwen2.5-coder:1.5b"
 
 
@@ -28,7 +38,7 @@ Python code:
 {python_code}
 """
 
-    response = requests.post(
+    response = ollama_post(
         OLLAMA_URL,
         json={
             "model": MODEL,
@@ -82,7 +92,7 @@ Rules:
 - Do not include Markdown or explanations.
 """
 
-    response = requests.post(
+    response = ollama_post(
         OLLAMA_URL,
         json={
             "model": MODEL,
@@ -104,3 +114,4 @@ Rules:
     ).strip()
 
     return fixed_cpp
+
