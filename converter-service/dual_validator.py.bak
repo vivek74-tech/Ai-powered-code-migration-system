@@ -1,0 +1,129 @@
+import requests
+
+import subprocess
+import tempfile
+from pathlib import Path
+
+from converter import PythonToCppConverter
+from ollama_converter import convert_with_ollama, repair_cpp_with_ollama
+
+DOCKER_VALIDATOR_URL = "http://127.0.0.1:8002/execute"
+
+def fix_cpp_headers(cpp_code):
+    if "#include <bits/stdc++.h>" not in cpp_code:
+        cpp_code = "#include <bits/stdc++.h>\n" + cpp_code
+
+    return cpp_code
+
+def run_program(command, timeout=10):
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=timeout
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr)
+
+    return result.stdout.strip()
+
+
+def validate_dual_conversion(python_code):
+    ast_cpp = PythonToCppConverter().convert(
+        python_code,
+        use_ai_fallback=False
+    )
+
+    ai_cpp = fix_cpp_headers(convert_with_ollama(python_code))
+
+    with tempfile.TemporaryDirectory() as folder:
+        folder = Path(folder)
+
+        python_file = folder / "source.py"
+        python_file.write_text(python_code, encoding="utf-8")
+
+        try:
+            response = requests.post(
+                DOCKER_VALIDATOR_URL,
+                json={"language": "python", "code": python_code},
+                timeout=10
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            if not result.get("success"):
+                raise RuntimeError(
+                    result.get("error") or "Python execution failed"
+                )
+
+            python_output = result.get("output", "").strip()
+
+        except (RuntimeError, requests.RequestException, ValueError) as error:
+            return {
+                "validated": False,
+                "failed_converter": "python",
+                "error": str(error),
+                "ast_cpp": ast_cpp,
+                "ollama_cpp": ai_cpp
+            }
+
+        outputs = []
+
+        for name, cpp_code in [
+            ("ast", ast_cpp),
+            ("ollama", ai_cpp)
+        ]:
+            max_retries = 2 if name == "ollama" else 0
+
+            for attempt in range(max_retries + 1):
+                try:
+                    response = requests.post(
+                        DOCKER_VALIDATOR_URL,
+                        json={"language": "cpp", "code": cpp_code},
+                        timeout=35
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+
+                    if not result.get("success"):
+                        error = result.get("error") or "Docker execution failed"
+
+                        if (
+                            name == "ollama"
+                            and result.get("stage") == "compilation"
+                            and attempt < max_retries
+                        ):
+                            cpp_code = fix_cpp_headers(
+                                repair_cpp_with_ollama(
+                                    python_code, cpp_code, error
+                                )
+                            )
+                            ai_cpp = cpp_code
+                            continue
+
+                        raise RuntimeError(error)
+
+                    outputs.append(result.get("output", "").strip())
+                    break
+
+                except (RuntimeError, requests.RequestException, ValueError) as e:
+                    return {
+                        "validated": False,
+                        "failed_converter": name,
+                        "error": str(e),
+                        "python_output": python_output,
+                        "ast_cpp": ast_cpp,
+                        "ollama_cpp": ai_cpp
+                    }
+
+    return {
+        "validated": (
+            python_output == outputs[0] == outputs[1]
+        ),
+        "python_output": python_output,
+        "ast_output": outputs[0],
+        "ollama_output": outputs[1],
+        "ast_cpp": ast_cpp,
+        "ollama_cpp": ai_cpp
+    }

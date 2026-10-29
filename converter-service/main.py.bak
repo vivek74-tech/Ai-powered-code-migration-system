@@ -1,0 +1,63 @@
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from converter import PythonToCppConverter, ConversionError
+
+app = FastAPI(title="AST Conversion Service")
+
+
+class ConversionRequest(BaseModel):
+    sourceCode: str = Field(min_length=1, max_length=10000)
+
+
+@app.get("/health")
+def health():
+    return {"status": "running"}
+
+
+@app.post("/convert")
+def convert(request: ConversionRequest):
+    try:
+        converter = PythonToCppConverter()
+        code = converter.convert(request.sourceCode)
+
+        return {
+            "success": True,
+            "convertedCode": code,
+            "method": "ast-based"
+        }
+
+    except ConversionError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": str(error),
+                "errorCode": error.code
+            }
+        )
+
+
+@app.post("/dual-validate")
+def dual_validate(request: ConversionRequest):
+    from dual_validator import validate_dual_conversion
+
+    try:
+        result = validate_dual_conversion(request.sourceCode)
+
+        return {
+            "success": result["validated"],
+            "validated": result["validated"],
+            "convertedCode": result.get("ast_cpp"),
+            "ollamaCode": result.get("ollama_cpp"),
+            "pythonOutput": result.get("python_output"),
+            "astOutput": result.get("ast_output"),
+            "ollamaOutput": result.get("ollama_output"),
+            "error": result.get("error"),
+            "failedConverter": result.get("failed_converter")
+        }
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )

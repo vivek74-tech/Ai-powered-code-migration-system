@@ -1,0 +1,34 @@
+import subprocess
+import tempfile
+from pathlib import Path
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI(title="C++ Validator Service")
+
+class ValidationRequest(BaseModel):
+    code: str
+
+@app.get("/health")
+def health():
+    return {"status": "running"}
+
+@app.post("/validate")
+def validate(request: ValidationRequest):
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "main.cpp"
+        path.write_text(request.code, encoding="utf-8")
+
+        try:
+            result = subprocess.run(
+                ["g++", "-std=c++17", "-fsyntax-only", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            return {
+                "success": result.returncode == 0,
+                "output": result.stderr[:4000]
+            }
+        except subprocess.TimeoutExpired:
+            return {"success": False, "output": "Compilation timed out"}
