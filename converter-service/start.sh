@@ -11,7 +11,7 @@ tailscaled --tun=userspace-networking --socks5-server=127.0.0.1:1055 --state=mem
 echo "Waiting for Tailscale daemon..."
 ready=0
 for i in $(seq 1 30); do
-  if [ -S /var/run/tailscale/tailscaled.sock ]; then
+  if tailscale status --json >/dev/null 2>&1; then
     ready=1
     break
   fi
