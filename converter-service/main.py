@@ -27,6 +27,7 @@ app = FastAPI(title="AST Conversion Service")
 
 class ConversionRequest(BaseModel):
     sourceCode: str = Field(min_length=1, max_length=10000)
+    stdin: str = Field(default="", max_length=4000)
 
 
 @app.get("/health")
@@ -61,7 +62,7 @@ def dual_validate(request: ConversionRequest):
     from dual_validator import validate_dual_conversion
 
     try:
-        result = validate_dual_conversion(request.sourceCode)
+        result = validate_dual_conversion(request.sourceCode, request.stdin)
 
         return {
             "success": result["validated"],

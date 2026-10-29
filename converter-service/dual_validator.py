@@ -3,8 +3,12 @@ import requests
 from converter import PythonToCppConverter
 from ollama_converter import convert_with_ollama, repair_cpp_with_ollama
 
-WORKER_URL = "http://127.0.0.1:8002/execute"
+import os
 
+WORKER_URL = os.getenv(
+    "WORKER_URL",
+    "http://127.0.0.1:8002/execute"
+)
 
 def fix_cpp_headers(code):
     import re
@@ -32,17 +36,18 @@ def fix_cpp_headers(code):
     return code
 
 
-def execute(language, code):
+def execute(language, code, stdin=''):
     response = requests.post(
         WORKER_URL,
-        json={"language": language, "code": code},
+        json={"language": language, "code": code, "stdin": stdin},
+        headers={"X-Worker-Key": os.environ["WORKER_API_KEY"]},
         timeout=35
     )
     response.raise_for_status()
     return response.json()
 
 
-def validate_dual_conversion(python_code):
+def validate_dual_conversion(python_code, stdin=''):
     result = {
         "validated": False,
         "ast_cpp": None,
@@ -56,7 +61,7 @@ def validate_dual_conversion(python_code):
     }
 
     try:
-        py = execute("python", python_code)
+        py = execute("python", python_code, stdin)
         if not py.get("success"):
             raise RuntimeError(py.get("error") or "Python execution failed")
         result["python_output"] = py.get("output", "").strip()
@@ -70,7 +75,7 @@ def validate_dual_conversion(python_code):
         )
         result["ast_cpp"] = fix_cpp_headers(ast_code)
 
-        ast_run = execute("cpp", result["ast_cpp"])
+        ast_run = execute("cpp", result["ast_cpp"], stdin)
         if ast_run.get("success"):
             result["ast_output"] = ast_run.get("output", "").strip()
     except Exception:
@@ -81,7 +86,7 @@ def validate_dual_conversion(python_code):
         result["ollama_cpp"] = ai_code
 
         for attempt in range(3):
-            ai_run = execute("cpp", ai_code)
+            ai_run = execute("cpp", ai_code, stdin)
 
             if ai_run.get("success"):
                 result["ollama_output"] = ai_run.get("output", "").strip()

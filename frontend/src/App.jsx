@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
 
@@ -71,6 +71,7 @@ function formatCppForDisplay(code) {
 
 export default function App() {
     const [sourceCode, setSourceCode] = useState(examples.Hello);
+    const [stdin, setStdin] = useState("");
     const [convertedCode, setConvertedCode] = useState("");
     const [migrationId, setMigrationId] = useState(null);
     const [ollamaCode, setOllamaCode] = useState("");
@@ -99,7 +100,11 @@ export default function App() {
             setHistory(Array.isArray(entries) ? entries : []);
             setHistoryError("");
         } catch (e) {
-            setHistoryError(errorText(e));
+            setHistoryError(
+    e.response?.status === 403
+        ? "History is temporarily disabled for security"
+        : errorText(e)
+);
         }
     }
 
@@ -136,6 +141,7 @@ export default function App() {
         try {
             const { data } = await api.post("/migration/convert", {
                 sourceCode,
+                stdin,
                 sourceLanguage: "python",
                 targetLanguage: "cpp",
             });
@@ -373,6 +379,26 @@ export default function App() {
                     </div>
 
 
+                    <section className="editor-panel">
+                        <div className="panel-heading">
+                            <strong>Custom Input (stdin)</strong>
+                            <span className="language-tag">INPUT</span>
+                        </div>
+                        <div className="editor-area">
+                            <textarea
+                                aria-label="Custom Input"
+                                placeholder="Example: 10 20 30 40"
+                                value={stdin}
+                                maxLength={4000}
+                                onChange={(e) => {
+                                    setStdin(e.target.value);
+                                    resetResult();
+                                }}
+                                rows={4}
+                            />
+                        </div>
+                    </section>
+
                     {ollamaCode && (
                         <div className="editors">
                             <Editor
@@ -426,6 +452,7 @@ export default function App() {
                                 disabled={!!busy}
                                 onClick={() => {
                                     setSourceCode("");
+                                    setStdin("");
                                     resetResult();
                                 }}
                             >
