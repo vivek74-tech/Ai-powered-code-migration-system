@@ -40,7 +40,7 @@ def execute(language, code, stdin=''):
     response = requests.post(
         WORKER_URL,
         json={"language": language, "code": code, "stdin": stdin},
-        headers={"X-Worker-Key": os.environ["WORKER_API_KEY"]},
+        headers={"X-Worker-Key": os.getenv("WORKER_API_KEY", "")},
         timeout=35
     )
     response.raise_for_status()
