@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
 
 const api = axios.create({
-    baseURL: "http://localhost:2000/api",
+    baseURL: (import.meta.env.VITE_API_URL || "http://localhost:2000/api"),
     timeout: 30000,
 });
 const examples = {
@@ -41,7 +41,7 @@ function Editor({ title, language, code, onChange }) {
                 />
             </div>
             <div className="panel-footer">
-                {code.split("\n").length} lines · {code.length} characters
+                {code.split("\n").length} lines Â· {code.length} characters
             </div>
         </section>
     );
@@ -154,7 +154,7 @@ export default function App() {
             setActiveId(data.migrationId || null);
             notify(
                 "success",
-                `Converted successfully${data.method ? ` · ${data.method}` : ""}`,
+                `Converted successfully${data.method ? ` Â· ${data.method}` : ""}`,
             );
             await loadHistory();
         } catch (e) {
@@ -219,7 +219,7 @@ export default function App() {
                 className="history-mobile-toggle"
                 onClick={() => setHistoryOpen(!historyOpen)}
             >
-                {historyOpen ? "✕ Close" : "☰ History"}
+                {historyOpen ? "âœ• Close" : "â˜° History"}
             </button>
             {historyOpen && (
                 <button
@@ -242,22 +242,22 @@ export default function App() {
                             setHistoryOpen(false);
                         }}
                     >
-                        ＋ New Conversion
+                        ï¼‹ New Conversion
                     </button>
                     <div className="history-head">
-                        <strong>◷ &nbsp; Conversion History</strong>
+                        <strong>â—· &nbsp; Conversion History</strong>
                         <button
                             onClick={loadHistory}
                             title="Refresh history"
                             aria-label="Refresh history"
                         >
-                            ↻
+                            â†»
                         </button>
                     </div>
                     <input
                         className="history-search"
                         aria-label="Search conversions"
-                        placeholder="⌕  Search conversions..."
+                        placeholder="âŒ•  Search conversions..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
@@ -292,12 +292,12 @@ export default function App() {
                                         title={first}
                                     >
                                         <span className="history-code-icon">
-                                            ⌘
+                                            âŒ˜
                                         </span>
                                         <span className="history-item-body">
                                             <strong>
                                                 {first.length > 30
-                                                    ? first.slice(0, 30) + "…"
+                                                    ? first.slice(0, 30) + "â€¦"
                                                     : first}
                                             </strong>
                                             <small>
@@ -317,7 +317,7 @@ export default function App() {
                                             </small>
                                             <em>
                                                 {item.method ||
-                                                    "Python → C++17"}
+                                                    "Python â†’ C++17"}
                                             </em>
                                         </span>
                                     </button>
@@ -329,7 +329,7 @@ export default function App() {
                     <div className="hero">
                         <div>
                             <h1>
-                                Python <span>→ C++17</span>
+                                Python <span>â†’ C++17</span>
                             </h1>
                             <p>Convert, validate and export clean C++ code.</p>
                         </div>
@@ -464,3 +464,4 @@ export default function App() {
         </div>
     );
 }
+
