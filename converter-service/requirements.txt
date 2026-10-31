@@ -3,3 +3,4 @@ uvicorn
 pydantic
 requests
 PySocks>=1.7.1,<2
+python-dotenv

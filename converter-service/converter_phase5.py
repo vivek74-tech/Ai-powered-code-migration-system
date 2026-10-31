@@ -1,0 +1,570 @@
+import ast
+import json
+
+
+class ConversionError(Exception):
+    def __init__(self, message, code="UNSUPPORTED_CONSTRUCT"):
+        super().__init__(message)
+        self.code = code
+
+
+class PythonToCppConverter:
+    """A deliberately restricted Python-to-C++17 transpiler (not full Python)."""
+
+    TYPES = {"int": "int", "float": "double", "bool": "bool", "str": "std::string",
+             "list[int]": "std::vector<int>", "list[float]": "std::vector<double>",
+             "set[int]": "std::set<int>", "dict[int,int]": "std::map<int, int>"}
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.scopes = [{}]
+        self.functions = {}
+        self.includes = {"iostream"}
+        self.loop_depth = 0
+        self.return_type = None
+        self.helpers = set()
+
+    def fail(self, message):
+        raise ConversionError(message)
+
+    def cpp_type(self, typ):
+        if typ not in self.TYPES:
+            self.fail(f"Unsupported type: {typ}")
+        if typ == "str": self.includes.add("string")
+        if typ.startswith("list["): self.includes.add("vector")
+        if typ.startswith("set["): self.includes.add("set")
+        if typ.startswith("dict["): self.includes.add("map")
+        return self.TYPES[typ]
+
+    def annotation(self, node):
+        if isinstance(node, ast.Name) and node.id in self.TYPES:
+            return node.id
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "list" and isinstance(node.slice, ast.Name):
+            t = f"list[{node.slice.id}]"
+            if t in self.TYPES: return t
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+            if node.value.id == "set" and isinstance(node.slice, ast.Name) and node.slice.id == "int":
+                return "set[int]"
+            if node.value.id == "dict" and isinstance(node.slice, ast.Tuple) and len(node.slice.elts) == 2:
+                if all(isinstance(x, ast.Name) and x.id == "int" for x in node.slice.elts):
+                    return "dict[int,int]"
+        self.fail("Supported annotations: int, float, bool, str, list[int], list[float], set[int], dict[int,int]")
+
+    def lookup(self, name):
+        for scope in reversed(self.scopes):
+            if name in scope: return scope[name]
+        self.fail(f"Unknown variable: {name}")
+
+    def bind(self, name, typ):
+        if not name.isidentifier() or name in ("main", "std") or name.startswith("__"):
+            self.fail(f"Invalid identifier: {name}")
+        self.scopes[-1][name] = typ
+
+    def expression(self, node):
+        if isinstance(node, ast.Constant):
+            if type(node.value) is bool: return ("true" if node.value else "false"), "bool"
+            if type(node.value) is int: return str(node.value), "int"
+            if type(node.value) is float: return repr(node.value), "float"
+            if type(node.value) is str: return json.dumps(node.value, ensure_ascii=True), "str"
+            self.fail("Unsupported constant")
+        if isinstance(node, ast.Name): return node.id, self.lookup(node.id)
+        if isinstance(node, ast.Set):
+            values = [self.expression(x) for x in node.elts]
+            if any(t != "int" for _, t in values): self.fail("Only integer sets supported")
+            return "std::set<int>{" + ", ".join(v for v, _ in values) + "}", "set[int]"
+        if isinstance(node, ast.Dict):
+            pairs = [(self.expression(k), self.expression(v)) for k, v in zip(node.keys, node.values) if k is not None]
+            if len(pairs) != len(node.keys) or any(kt != "int" or vt != "int" for (_, kt), (_, vt) in pairs):
+                self.fail("Only dict[int,int] literals supported")
+            return "std::map<int, int>{" + ", ".join("{" + k + ", " + v + "}" for (k, _), (v, _) in pairs) + "}", "dict[int,int]"
+        if isinstance(node, ast.List):
+            values = [self.expression(x) for x in node.elts]
+            if not values: self.fail("Empty lists need a type annotation")
+            types = {t for _, t in values}
+            if not types <= {"int", "float"}: self.fail("Only numeric lists supported")
+            typ = "list[float]" if "float" in types else "list[int]"
+            self.includes.add("vector")
+            return self.cpp_type(typ) + "{" + ", ".join(v for v, _ in values) + "}", typ
+        if isinstance(node, ast.Subscript):
+            seq, typ = self.expression(node.value)
+            index, ityp = self.expression(node.slice)
+            if ityp != "int": self.fail("Index must be integer")
+            if typ.startswith("list["): return f"{seq}.at({index})", typ[5:-1]
+            if typ == "dict[int,int]": return f"{seq}.at({index})", "int"
+            if typ == "str": return f"std::string(1, {seq}.at({index}))", "str"
+            self.fail("Indexing supported for lists, strings and integer dictionaries")
+        if isinstance(node, ast.UnaryOp):
+            value, typ = self.expression(node.operand)
+            if isinstance(node.op, ast.Not): return f"(!({value}))", "bool"
+            if isinstance(node.op, (ast.USub, ast.UAdd)) and typ in ("int", "float"):
+                return f"({'-' if isinstance(node.op, ast.USub) else '+'}{value})", typ
+            self.fail("Unsupported unary operation")
+        if isinstance(node, ast.BinOp):
+            left, lt = self.expression(node.left)
+            right, rt = self.expression(node.right)
+            ops = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/", ast.FloorDiv: "/", ast.Mod: "%"}
+            op = ops.get(type(node.op))
+            if not op: self.fail("Unsupported binary operator")
+            if lt == rt == "str" and isinstance(node.op, ast.Add): return f"({left} + {right})", "str"
+            if lt not in ("int", "float") or rt not in ("int", "float"):
+                self.fail("Arithmetic requires numeric values")
+            if isinstance(node.op, ast.Mod) and (lt != "int" or rt != "int"):
+                self.fail("Modulo requires integers")
+            typ = "float" if "float" in (lt, rt) or isinstance(node.op, ast.Div) else "int"
+            if isinstance(node.op, ast.Div):
+                return f"(static_cast<double>({left}) / ({right}))", typ
+            if isinstance(node.op, ast.FloorDiv):
+                if lt == rt == "int":
+                    self.includes.add("stdexcept")
+                    return f"py_floor_div({left}, {right})", "int"
+                self.includes.add("cmath")
+                return f"std::floor(static_cast<double>({left}) / ({right}))", "float"
+            return f"({left} {op} {right})", typ
+        if isinstance(node, ast.Compare):
+            ops = {ast.Eq: "==", ast.NotEq: "!=", ast.Lt: "<", ast.LtE: "<=", ast.Gt: ">", ast.GtE: ">="}
+            pieces = []
+            prev = node.left
+            for op, right in zip(node.ops, node.comparators):
+                symbol = ops.get(type(op))
+                if not symbol: self.fail("Unsupported comparison")
+                l, _ = self.expression(prev)
+                r, _ = self.expression(right)
+                pieces.append(f"{self.clean_condition(l)} {symbol} {self.clean_condition(r)}")
+                prev = right
+            return " && ".join(f"({p})" if len(pieces) > 1 else p for p in pieces), "bool"
+        if isinstance(node, ast.BoolOp):
+            symbol = "&&" if isinstance(node.op, ast.And) else "||" if isinstance(node.op, ast.Or) else None
+            if not symbol: self.fail("Unsupported boolean operator")
+            values = [self.expression(x) for x in node.values]
+            if any(t != "bool" for _, t in values): self.fail("Boolean operators require bool")
+            return "(" + f" {symbol} ".join(v for v, _ in values) + ")", "bool"
+        if isinstance(node, ast.Call):
+            if node.keywords: self.fail("Keyword arguments unsupported")
+            if isinstance(node.func, ast.Attribute):
+                obj, typ = self.expression(node.func.value)
+                method = node.func.attr
+                if method == "split" and typ == "str" and not node.args:
+                    self.helpers.add("split")
+                    return f"py_split({obj})", "list[str]"
+                if method == "pop" and typ == "list[int]" and not node.args:
+                    self.helpers.add("pop")
+                    return f"py_pop({obj})", "int"
+                if method == "get" and typ == "dict[int,int]" and len(node.args) in (1, 2):
+                    key, kt = self.expression(node.args[0])
+                    if kt != "int": self.fail("Dictionary key must be int")
+                    default, dt = self.expression(node.args[1]) if len(node.args) == 2 else ("0", "int")
+                    if dt != "int": self.fail("Dictionary default must be int")
+                    self.helpers.add("dict_get")
+                    return f"py_dict_get({obj}, {key}, {default})", "int"
+            if isinstance(node.func, ast.Name):
+                name = node.func.id
+                if name == "input" and not node.args:
+                    self.helpers.add("input")
+                    return "py_input()", "str"
+                if name == "map" and len(node.args) == 2 and isinstance(node.args[0], ast.Name) and node.args[0].id == "int":
+                    value, typ = self.expression(node.args[1])
+                    if typ != "list[str]": self.fail("map(int, ...) requires input().split()")
+                    self.helpers.add("map_int")
+                    return f"py_map_int({value})", "list[int]"
+                if name == "list" and len(node.args) == 1:
+                    return self.expression(node.args[0])
+                if name == "set" and len(node.args) == 1:
+                    val, typ = self.expression(node.args[0])
+                    if typ != "list[int]": self.fail("set() expects list[int]")
+                    self.includes.add("set")
+                    return f"std::set<int>({val}.begin(), {val}.end())", "set[int]"
+                if name == "sorted" and len(node.args) == 1:
+                    val, typ = self.expression(node.args[0])
+                    if typ not in ("list[int]", "set[int]"): self.fail("sorted() supports list[int] and set[int]")
+                    if typ == "set[int]":
+                        self.helpers.add("sorted_set")
+                        return f"py_sorted_set({val})", "list[int]"
+                    self.helpers.add("sorted")
+                    return f"py_sorted({val})", typ
+                if name == "sum" and len(node.args) == 1:
+                    val, typ = self.expression(node.args[0])
+                    if typ not in ("list[int]", "list[float]"): self.fail("sum() requires numeric list")
+                    self.includes.add("numeric")
+                    initial_value = "0.0" if typ == "list[float]" else "0"
+
+                    cpp_expression = (
+                        "([&]() { "
+                        f"auto values = {val}; "
+                        "return std::accumulate("
+                        "values.begin(), values.end(), "
+                        f"{initial_value}); "
+                        "}())"
+                    )
+
+                    return cpp_expression, typ[5:-1]
+                if name == "len" and len(node.args) == 1:
+                    value, typ = self.expression(node.args[0])
+                    if not (typ.startswith(("list[", "set[", "dict[")) or typ == "str"): self.fail("len() requires collection or str")
+                    return f"static_cast<int>({value}.size())", "int"
+                if name in ("int", "float", "str") and len(node.args) == 1:
+                    value, typ = self.expression(node.args[0])
+                    if name == "int" and typ == "str":
+                        self.includes.add("string")
+                        return f"std::stoi({value})", "int"
+                    if name == "float" and typ == "str":
+                        self.includes.add("string")
+                        return f"std::stod({value})", "float"
+                    if name == "int" and typ in ("int", "float", "bool"):
+                        return f"static_cast<int>({value})", "int"
+                    if name == "float" and typ in ("int", "float", "bool"):
+                        return f"static_cast<double>({value})", "float"
+                    if name == "str" and typ in ("int", "float"):
+                        self.includes.add("string")
+                        return f"std::to_string({value})", "str"
+                    self.fail(f"Unsupported {name}() conversion")
+                if name == "abs" and len(node.args) == 1:
+                    value, typ = self.expression(node.args[0])
+                    if typ not in ("int", "float"): self.fail("abs() needs a number")
+                    self.includes.add("cmath")
+                    return f"std::abs({value})", typ
+                if name in ("min", "max") and len(node.args) == 2:
+                    a, at = self.expression(node.args[0]); b, bt = self.expression(node.args[1])
+                    if at != bt or at not in ("int", "float"): self.fail("min/max require two matching numbers")
+                    self.includes.add("algorithm")
+                    return f"std::{name}({a}, {b})", at
+                if name in self.functions:
+                    args, ret = self.functions[name]
+                    if len(args) != len(node.args): self.fail(f"Wrong argument count: {name}")
+                    values = [self.expression(x) for x in node.args]
+                    if any(t != expected for (_, t), expected in zip(values, args)):
+                        self.fail(f"Argument type mismatch: {name}")
+                    return f"{name}({', '.join(v for v, _ in values)})", ret
+            self.fail("Unsupported function call")
+        self.fail(f"Unsupported expression: {type(node).__name__}")
+
+    def block(self, nodes, depth):
+        return "\n".join(self.statement(n, depth) for n in nodes)
+
+    @staticmethod
+    def clean_condition(value):
+        """Remove redundant outer parentheses without changing inner precedence."""
+        value = value.strip()
+        while value.startswith("(") and value.endswith(")"):
+            level = 0
+            outer = True
+            for i, ch in enumerate(value):
+                if ch == "(": level += 1
+                elif ch == ")":
+                    level -= 1
+                    if level == 0 and i < len(value) - 1:
+                        outer = False
+                        break
+            if not outer or level != 0:
+                break
+            value = value[1:-1].strip()
+        return value
+
+    def statement(self, node, depth=1):
+        pad = "    " * depth
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Subscript):
+            target = node.targets[0]
+            obj, typ = self.expression(target.value)
+            key, kt = self.expression(target.slice)
+            val, vt = self.expression(node.value)
+            if typ == "dict[int,int]" and kt == vt == "int":
+                return f"{pad}{obj}[{key}] = {val};"
+            if typ.startswith("list[") and kt == "int" and vt == typ[5:-1]:
+                return f"{pad}{obj}.at({key}) = {val};"
+            self.fail("Unsupported indexed assignment")
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Tuple):
+            names = node.targets[0].elts
+            if not names or not all(isinstance(x, ast.Name) for x in names):
+                self.fail("Only simple tuple unpacking supported")
+            value, typ = self.expression(node.value)
+            if typ != "list[int]": self.fail("Tuple unpacking supports integer input lists")
+            self.includes.add("stdexcept")
+            temp = f"_unpack_{getattr(node, 'lineno', 0)}"
+            lines = [f"{pad}auto {temp} = {value};",
+                     f'{pad}if ({temp}.size() != {len(names)}) throw std::runtime_error("unpack length mismatch");']
+            for i, target in enumerate(names):
+                name = target.id
+                if any(name in scope for scope in self.scopes):
+                    if self.lookup(name) != "int": self.fail("Unpacked variable must be int")
+                    lines.append(f"{pad}{name} = {temp}[{i}];")
+                else:
+                    self.bind(name, "int")
+                    lines.append(f"{pad}int {name} = {temp}[{i}];")
+            return "\n".join(lines)
+        if isinstance(node, ast.Assign):
+            if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+                self.fail("Only simple assignments supported")
+            name = node.targets[0].id
+            value, typ = self.expression(node.value)
+            if any(name in scope for scope in self.scopes):
+                old = self.lookup(name)
+                if old != typ and not (old == "float" and typ == "int"):
+                    self.fail(f"Cannot change type of {name}")
+                return f"{pad}{name} = {value};"
+            self.bind(name, typ)
+            if typ == "set[int]" and value.startswith("std::set<int>{"):
+                value = value.replace("std::set<int>{", "{", 1)
+            return f"{pad}{self.cpp_type(typ)} {name} = {value};"
+        if isinstance(node, ast.AnnAssign):
+            if not isinstance(node.target, ast.Name): self.fail("Only named annotations supported")
+            name = node.target.id
+            typ = self.annotation(node.annotation)
+            if node.value is None: self.fail("Annotated variables must be initialized")
+            if ((isinstance(node.value, ast.List) and not node.value.elts and typ.startswith("list[")) or
+                (isinstance(node.value, ast.Set) and not node.value.elts and typ == "set[int]") or
+                (isinstance(node.value, ast.Dict) and not node.value.keys and typ == "dict[int,int]")):
+                value = "{}"; actual = typ
+            else: value, actual = self.expression(node.value)
+            if actual != typ and not (typ == "float" and actual == "int"):
+                self.fail(f"Annotation mismatch for {name}")
+            self.bind(name, typ)
+            return f"{pad}{self.cpp_type(typ)} {name} = {value};"
+        if isinstance(node, ast.AugAssign):
+            if not isinstance(node.target, ast.Name): self.fail("Only named augmented assignment")
+            name = node.target.id
+            typ = self.lookup(name)
+            value, vt = self.expression(node.value)
+            ops = {ast.Add: "+=", ast.Sub: "-=", ast.Mult: "*=", ast.Mod: "%="}
+            op = ops.get(type(node.op))
+            if not op or typ not in ("int", "float") or (vt != typ and not (typ == "float" and vt == "int")):
+                self.fail("Unsupported augmented assignment")
+            return f"{pad}{name} {op} {value};"
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+            call = node.value
+            if isinstance(call.func, ast.Name) and call.func.id == "print" and not call.keywords:
+                values = [self.expression(arg) for arg in call.args]
+                if not values: return f"{pad}std::cout << std::endl;"
+                parts = []
+                for arg, (value, typ) in zip(call.args, values):
+                    if typ.startswith("list["):
+                        self.helpers.add("print_list")
+                        parts.append(f"py_print_list({value})")
+                    else:
+                        if (isinstance(arg, ast.Call)
+                                and isinstance(arg.func, ast.Name)
+                                and arg.func.id == "len"
+                                and value.startswith("static_cast<int>(")
+                                and value.endswith(")")):
+                            value = value[len("static_cast<int>("):-1]
+                        parts.append(self.clean_condition(value))
+                return f'{pad}std::cout << ' + ' << " " << '.join(parts) + ' << std::endl;'
+            if isinstance(call.func, ast.Attribute) and call.func.attr in (
+                "sort", "reverse", "clear"
+            ):
+                method = call.func.attr
+                if call.args:
+                    self.fail(f"{method}() does not accept positional arguments")
+
+                descending = False
+                if method == "sort":
+                    for keyword in call.keywords:
+                        if keyword.arg != "reverse" or not isinstance(
+                            keyword.value, ast.Constant
+                        ) or not isinstance(keyword.value.value, bool):
+                            self.fail("sort() supports only reverse=True/False")
+                        descending = keyword.value.value
+                elif call.keywords:
+                    self.fail(f"{method}() does not accept keyword arguments")
+
+                obj, typ = self.expression(call.func.value)
+                if not typ.startswith("list["):
+                    self.fail("sort/reverse/clear require a list")
+
+                self.includes.add("algorithm")
+                if method == "sort":
+                    comparator = ", std::greater<>()" if descending else ""
+                    return (
+                        f"{pad}std::sort({obj}.begin(), {obj}.end()"
+                        f"{comparator});"
+                    )
+                if method == "reverse":
+                    return f"{pad}std::reverse({obj}.begin(), {obj}.end());"
+                return f"{pad}{obj}.clear();"
+            if isinstance(call.func, ast.Attribute) and call.func.attr in ("add", "discard", "remove") and len(call.args) == 1:
+                obj, typ = self.expression(call.func.value)
+                val, vt = self.expression(call.args[0])
+                if typ != "set[int]" or vt != "int": self.fail("add/discard require integer set")
+                if call.func.attr == "remove":
+                    return (
+                        f'{pad}if ({obj}.erase({val}) == 0) '
+                        'throw std::out_of_range("set.remove: element not found");'
+                    )
+                return f"{pad}{obj}.{'insert' if call.func.attr == 'add' else 'erase'}({val});"
+            if isinstance(call.func, ast.Attribute) and call.func.attr == "pop" and not call.args:
+                value, typ = self.expression(call)
+                return f"{pad}{value};"
+            if isinstance(call.func, ast.Attribute) and call.func.attr == "append" and len(call.args) == 1 and not call.keywords:
+                obj, typ = self.expression(call.func.value)
+                val, vt = self.expression(call.args[0])
+                if not typ.startswith("list[") or vt != typ[5:-1]: self.fail("append type mismatch")
+                return f"{pad}{obj}.push_back({val});"
+        if isinstance(node, ast.If):
+            cond, _ = self.expression(node.test)
+            cond = self.clean_condition(cond)
+            result = f"{pad}if ({cond}) {{\n{self.block(node.body, depth+1)}\n{pad}}}"
+            if node.orelse:
+                result += f" else {{\n{self.block(node.orelse, depth+1)}\n{pad}}}"
+            return result
+        if isinstance(node, ast.While):
+            if node.orelse: self.fail("while-else unsupported")
+            cond, _ = self.expression(node.test)
+            cond = self.clean_condition(cond)
+            self.loop_depth += 1
+            try: body = self.block(node.body, depth+1)
+            finally: self.loop_depth -= 1
+            return f"{pad}while ({cond}) {{\n{body}\n{pad}}}"
+        if isinstance(node, ast.For):
+            if node.orelse or not isinstance(node.target, ast.Name): self.fail("Only simple for-range loops")
+            call = node.iter
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "range" and not call.keywords and 1 <= len(call.args) <= 3):
+                iterable, typ = self.expression(call)
+                if typ not in ("list[int]", "set[int]"):
+                    self.fail("for supports range(), list[int] and set[int]")
+                name = node.target.id
+                if any(name in scope for scope in self.scopes):
+                    if self.lookup(name) != "int": self.fail("Loop variable must be int")
+                    header = f"for ({name} : {iterable})"
+                else:
+                    self.bind(name, "int")
+                    header = f"for (int {name} : {iterable})"
+                self.loop_depth += 1
+                try: body = self.block(node.body, depth+1)
+                finally: self.loop_depth -= 1
+                return f"{pad}{header} {{\n{body}\n{pad}}}"
+            values = [self.expression(a) for a in call.args]
+            if any(t != "int" for _, t in values): self.fail("range arguments must be int")
+            start, stop, step = ("0", values[0][0], "1") if len(values) == 1 else (values[0][0], values[1][0], "1") if len(values) == 2 else tuple(v for v, _ in values)
+            if len(values) == 3 and isinstance(call.args[2], ast.Constant) and call.args[2].value == 0:
+                self.fail("range step cannot be zero")
+            name = node.target.id
+            # Loop variable is declared in current scope, and remains accessible after loop.
+            if any(name in scope for scope in self.scopes):
+                if self.lookup(name) != "int": self.fail("Loop variable must be int")
+                init = f"{name} = {start}"
+            else:
+                self.bind(name, "int"); init = f"int {name} = {start}"
+            step_value = None
+            if len(call.args) < 3:
+                step_value = 1
+            elif isinstance(call.args[2], ast.Constant) and type(call.args[2].value) is int:
+                step_value = call.args[2].value
+            elif (isinstance(call.args[2], ast.UnaryOp) and
+                  isinstance(call.args[2].op, ast.USub) and
+                  isinstance(call.args[2].operand, ast.Constant) and
+                  type(call.args[2].operand.value) is int):
+                step_value = -call.args[2].operand.value
+            if step_value == 0:
+                self.fail("range step cannot be zero")
+            if step_value is not None:
+                cond = f"{name} {'<' if step_value > 0 else '>'} {self.clean_condition(stop)}"
+                increment = (f"{name}++" if step_value == 1 else
+                             f"{name}--" if step_value == -1 else
+                             f"{name} += {step_value}" if step_value > 0 else
+                             f"{name} -= {-step_value}")
+            else:
+                cond = f"({step}) > 0 ? {name} < {stop} : {name} > {stop}"
+                increment = f"{name} += {step}"
+            self.loop_depth += 1
+            try: body = self.block(node.body, depth+1)
+            finally: self.loop_depth -= 1
+            return f"{pad}for ({init}; {cond}; {increment}) {{\n{body}\n{pad}}}"
+        if isinstance(node, ast.Return):
+            if self.return_type is None: self.fail("return outside function")
+            if node.value is None: self.fail("return value required")
+            value, typ = self.expression(node.value)
+            if typ != self.return_type and not (self.return_type == "float" and typ == "int"):
+                self.fail("Return type mismatch")
+            return f"{pad}return {value};"
+        if isinstance(node, ast.Break):
+            if not self.loop_depth: self.fail("break outside loop")
+            return f"{pad}break;"
+        if isinstance(node, ast.Continue):
+            if not self.loop_depth: self.fail("continue outside loop")
+            return f"{pad}continue;"
+        if isinstance(node, ast.Pass): return f"{pad};"
+        self.fail(f"Unsupported statement: {type(node).__name__}")
+
+    def function(self, node):
+        if node.decorator_list or node.args.vararg or node.args.kwarg or node.args.kwonlyargs or node.args.defaults or node.args.posonlyargs:
+            self.fail("Decorators, defaults and variadic arguments unsupported")
+        args, ret = self.functions[node.name]
+        saved_scopes, saved_return, saved_loop = self.scopes, self.return_type, self.loop_depth
+        self.scopes, self.return_type, self.loop_depth = [{}], ret, 0
+        for arg, typ in zip(node.args.args, args): self.bind(arg.arg, typ)
+        try: body = self.block(node.body, 1)
+        finally: self.scopes, self.return_type, self.loop_depth = saved_scopes, saved_return, saved_loop
+        params = ", ".join(f"{self.cpp_type(typ)} {arg.arg}" for arg, typ in zip(node.args.args, args))
+        return f"{self.cpp_type(ret)} {node.name}({params}) {{\n{body}\n}}"
+
+    def _convert_ast(self, code):
+        self.reset()
+        try: tree = ast.parse(code)
+        except SyntaxError as e: raise ConversionError(str(e), "INVALID_SYNTAX") from e
+        funcs = [x for x in tree.body if isinstance(x, ast.FunctionDef)]
+        for fn in funcs:
+            if fn.name in self.functions or fn.name == "main" or fn.returns is None:
+                self.fail("Functions require unique names and return type annotations")
+            if any(a.annotation is None for a in fn.args.args):
+                self.fail("Every function argument needs a type annotation")
+            self.functions[fn.name] = ([self.annotation(a.annotation) for a in fn.args.args], self.annotation(fn.returns))
+        definitions = [self.function(fn) for fn in funcs]
+        statements = [x for x in tree.body if not isinstance(x, ast.FunctionDef)]
+        main = self.block(statements, 1)
+        declarations = []
+        for name, (args, ret) in self.functions.items():
+            declarations.append(f"{self.cpp_type(ret)} {name}({', '.join(self.cpp_type(t) for t in args)});")
+        helpers = []
+        if "input" in self.helpers:
+            self.includes.update(("string", "stdexcept"))
+            helpers.append('std::string py_input() { std::string s; if (!std::getline(std::cin, s)) throw std::runtime_error("input failed"); return s; }')
+        if "split" in self.helpers:
+            self.includes.update(("vector", "string", "sstream"))
+            helpers.append('std::vector<std::string> py_split(const std::string& s) { std::istringstream in(s); std::vector<std::string> out; std::string x; while (in >> x) out.push_back(x); return out; }')
+        if "map_int" in self.helpers:
+            self.includes.update(("vector", "string"))
+            helpers.append('std::vector<int> py_map_int(const std::vector<std::string>& xs) { std::vector<int> out; for (const auto& x : xs) out.push_back(std::stoi(x)); return out; }')
+        if "pop" in self.helpers:
+            self.includes.update(("vector", "stdexcept"))
+            helpers.append('int py_pop(std::vector<int>& xs) { if (xs.empty()) throw std::out_of_range("pop from empty list"); int x = xs.back(); xs.pop_back(); return x; }')
+        if "print_list" in self.helpers:
+            helpers.append('template <typename T> std::string py_print_list(const std::vector<T>& xs) { std::ostringstream out; out << "["; for (size_t i = 0; i < xs.size(); ++i) { if (i) out << ", "; out << xs[i]; } out << "]"; return out.str(); }')
+        if "sorted_set" in self.helpers:
+            self.includes.update(("set", "vector"))
+            helpers.append(
+                "std::vector<int> py_sorted_set(const std::set<int>& xs) "
+                "{ return {xs.begin(), xs.end()}; }"
+            )
+        if "sorted" in self.helpers:
+            self.includes.update(("vector", "algorithm"))
+            helpers.append('std::vector<int> py_sorted(std::vector<int> xs) { std::sort(xs.begin(), xs.end()); return xs; }')
+        if "dict_get" in self.helpers:
+            self.includes.add("map")
+            helpers.append('int py_dict_get(const std::map<int, int>& m, int k, int fallback) { auto it = m.find(k); return it == m.end() ? fallback : it->second; }')
+        if "py_floor_div(" in "\n".join(definitions + [main]):
+            helpers.append('int py_floor_div(int a, int b) { if (b == 0) throw std::runtime_error("division by zero"); int q = a / b, r = a % b; return q - ((r != 0) && ((r < 0) != (b < 0))); }')
+        headers = "#include <bits/stdc++.h>\nusing namespace std;"
+        pieces = [headers] + helpers + declarations + definitions + [f"int main() {{\n{main}\n    return 0;\n}}"]
+        return "\n\n".join(p for p in pieces if p)
+
+
+    def convert(self, code, use_ai_fallback=True, *, validate_ai_behavior=False, ai_retries=2):
+        try:
+            return self._convert_ast(code)
+        except ConversionError as ast_error:
+            if not use_ai_fallback or ast_error.code == "INVALID_SYNTAX":
+                raise
+
+            try:
+                from ollama_converter import convert_with_ollama
+                return convert_with_ollama(
+                    code,
+                    validate_behavior=validate_ai_behavior,
+                    max_retries=ai_retries
+                )
+            except (RuntimeError, OSError, ValueError) as ai_error:
+                raise ConversionError(
+                    f"AST conversion failed: {ast_error}. "
+                    f"Ollama fallback failed: {ai_error}",
+                    "AI_FALLBACK_FAILED"
+                ) from ai_error

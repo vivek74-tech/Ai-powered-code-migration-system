@@ -2,6 +2,17 @@
 using namespace std;
 
 int main() {
-    std::cout << [&]() { auto values = std::vector<int>{1, 2, 3, 4}; return std::accumulate(values.begin(), values.end(), 0); }() << std::endl;
+    long long n;
+    cin >> n;
+
+    std::vector<long long> arr(n);
+    for (long long i = 0; i < n; i++) {
+        cin >> arr[i];
+    }
+
+    for (int x : arr) {
+        cout << x << endl;
+    }
+
     return 0;
 }

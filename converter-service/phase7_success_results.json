@@ -1,0 +1,108 @@
+{
+  "nested_loops": {
+    "status": "PASS",
+    "method": "dual-validated",
+    "ast": {
+      "status": "PASS",
+      "passed": 3,
+      "total": 3
+    },
+    "ollama": {
+      "status": "PASS",
+      "passed": 3,
+      "total": 3
+    },
+    "errors": {},
+    "repair_history": []
+  },
+  "recursion": {
+    "status": "PASS",
+    "method": "dual-validated",
+    "ast": {
+      "status": "PASS",
+      "passed": 4,
+      "total": 4
+    },
+    "ollama": {
+      "status": "PASS",
+      "passed": 4,
+      "total": 4
+    },
+    "errors": {},
+    "repair_history": []
+  },
+  "dictionary": {
+    "status": "PASS",
+    "method": "ollama-fallback",
+    "ast": {
+      "status": null,
+      "passed": null,
+      "total": null
+    },
+    "ollama": {
+      "status": "PASS",
+      "passed": 3,
+      "total": 3
+    },
+    "errors": {
+      "ast": "Only dict[int,int] literals supported"
+    },
+    "repair_history": []
+  },
+  "string_operations": {
+    "status": "PASS",
+    "method": "ollama-fallback",
+    "ast": {
+      "status": null,
+      "passed": null,
+      "total": null
+    },
+    "ollama": {
+      "status": "PASS",
+      "passed": 4,
+      "total": 4
+    },
+    "errors": {
+      "ast": "Unsupported function call"
+    },
+    "repair_history": [
+      {
+        "attempt": 1,
+        "before_status": "FAIL",
+        "diagnostic": "C++ stdout differs from Python stdout. Preserve whitespace, spaces, and trailing newlines exactly.\nstdin: 'hello\\n'\nexpected Python stdout: 'HELLO\\n5\\n'\nactual C++ stdout: 'hello\\n5\\n'",
+        "outcome": "candidate generated; revalidation required"
+      }
+    ]
+  },
+  "exception_handling": {
+    "status": "PASS",
+    "method": "ollama-fallback",
+    "ast": {
+      "status": null,
+      "passed": null,
+      "total": null
+    },
+    "ollama": {
+      "status": "PASS",
+      "passed": 3,
+      "total": 3
+    },
+    "errors": {
+      "ast": "Unsupported statement: Try"
+    },
+    "repair_history": [
+      {
+        "attempt": 1,
+        "before_status": "FAIL",
+        "diagnostic": "C++ stdout differs from Python stdout. Preserve whitespace, spaces, and trailing newlines exactly.\nstdin: '-3\\n'\nexpected Python stdout: '-4\\n'\nactual C++ stdout: '-3\\n'",
+        "outcome": "candidate generated; revalidation required"
+      },
+      {
+        "attempt": 2,
+        "before_status": "FAIL",
+        "diagnostic": "C++ stdout differs from Python stdout. Preserve whitespace, spaces, and trailing newlines exactly.\nstdin: '-3\\n'\nexpected Python stdout: '-4\\n'\nactual C++ stdout: '-3\\n'",
+        "outcome": "candidate generated; revalidation required"
+      }
+    ]
+  }
+}

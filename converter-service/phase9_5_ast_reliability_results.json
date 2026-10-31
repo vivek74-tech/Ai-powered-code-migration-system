@@ -1,0 +1,32 @@
+{
+    "phase": "9.5",
+    "created_at": "2026-10-31T00:55:06.641456",
+    "results": [
+        {
+            "attempt": 1,
+            "method": "AST",
+            "status": "PASS",
+            "passed": 7,
+            "total": 7,
+            "error": null
+        },
+        {
+            "attempt": 2,
+            "method": "AST",
+            "status": "PASS",
+            "passed": 7,
+            "total": 7,
+            "error": null
+        },
+        {
+            "attempt": 3,
+            "method": "AST",
+            "status": "PASS",
+            "passed": 7,
+            "total": 7,
+            "error": null
+        }
+    ],
+    "ast_success_count": 3,
+    "total_attempts": 3
+}

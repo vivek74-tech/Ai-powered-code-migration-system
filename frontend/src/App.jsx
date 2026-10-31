@@ -4,7 +4,7 @@ import "./App.css";
 
 const api = axios.create({
     baseURL: (import.meta.env.VITE_API_URL || "http://localhost:2000/api"),
-    timeout: 30000,
+    timeout: 180000,
 });
 const examples = {
     Hello: 'print("Hello World")',
@@ -41,7 +41,7 @@ function Editor({ title, language, code, onChange }) {
                 />
             </div>
             <div className="panel-footer">
-                {code.split("\n").length} lines Â· {code.length} characters
+                {code.split("\n").length} lines | {code.length} characters
             </div>
         </section>
     );
@@ -145,12 +145,18 @@ export default function App() {
                 sourceLanguage: "python",
                 targetLanguage: "cpp",
             });
+            console.log("API RESPONSE:", data);
+            console.log("CONVERTED CODE:", data.convertedCode);
+            console.log("PYTHON OUTPUT:", data.pythonOutput);
+            console.log("AST OUTPUT:", data.astOutput);
+
             if (data.success === false)
                 throw Error(data.message || "Conversion failed");
             setConvertedCode(data.convertedCode || "");
             setOllamaCode(data.ollamaCode || "");
             setTripleResult({
                 validated: data.validated,
+                method: data.method,
                 pythonOutput: data.pythonOutput,
                 astOutput: data.astOutput,
                 ollamaOutput: data.ollamaOutput,
@@ -160,11 +166,26 @@ export default function App() {
             setActiveId(data.migrationId || null);
             notify(
                 "success",
-                `Converted successfully${data.method ? ` Â· ${data.method}` : ""}`,
+                `Converted successfully${data.method ? ` | ${data.method}` : ""}`,
             );
             await loadHistory();
         } catch (e) {
-            notify("error", errorText(e));
+            const errorData = e.response?.data;
+
+            if (errorData) {
+                setTripleResult({
+                    validated: false,
+                    pythonOutput: errorData.pythonOutput,
+                    astOutput: errorData.astOutput,
+                    ollamaOutput: errorData.ollamaOutput,
+                    error: errorData.message,
+                    failedConverter: errorData.failedConverter,
+                });
+
+                notify("error", errorData.message || "Triple validation failed");
+            } else {
+                notify("error", errorText(e));
+            }
         } finally {
             setBusy("");
         }
@@ -225,7 +246,7 @@ export default function App() {
                 className="history-mobile-toggle"
                 onClick={() => setHistoryOpen(!historyOpen)}
             >
-                {historyOpen ? "âœ• Close" : "â˜° History"}
+                {historyOpen ? "Close" : "History"}
             </button>
             {historyOpen && (
                 <button
@@ -248,22 +269,22 @@ export default function App() {
                             setHistoryOpen(false);
                         }}
                     >
-                        ï¼‹ New Conversion
+                        + New Conversion
                     </button>
                     <div className="history-head">
-                        <strong>â—· &nbsp; Conversion History</strong>
+                        <strong>Conversion History</strong>
                         <button
                             onClick={loadHistory}
                             title="Refresh history"
                             aria-label="Refresh history"
                         >
-                            â†»
+                            Refresh
                         </button>
                     </div>
                     <input
                         className="history-search"
                         aria-label="Search conversions"
-                        placeholder="âŒ•  Search conversions..."
+                        placeholder="Search conversions..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
@@ -298,12 +319,12 @@ export default function App() {
                                         title={first}
                                     >
                                         <span className="history-code-icon">
-                                            âŒ˜
+                                            PY
                                         </span>
                                         <span className="history-item-body">
                                             <strong>
                                                 {first.length > 30
-                                                    ? first.slice(0, 30) + "â€¦"
+                                                    ? first.slice(0, 30) + "..."
                                                     : first}
                                             </strong>
                                             <small>
@@ -323,7 +344,7 @@ export default function App() {
                                             </small>
                                             <em>
                                                 {item.method ||
-                                                    "Python â†’ C++17"}
+                                                    "Python → C++17"}
                                             </em>
                                         </span>
                                     </button>
@@ -335,7 +356,7 @@ export default function App() {
                     <div className="hero">
                         <div>
                             <h1>
-                                Python <span>â†’ C++17</span>
+                                Python <span>→ C++17</span>
                             </h1>
                             <p>Convert, validate and export clean C++ code.</p>
                         </div>
@@ -412,10 +433,24 @@ export default function App() {
                     {tripleResult && (
                         <section className="output-panel">
                             <div className="output-title">
-                                Triple Validation: {tripleResult.validated
-                                    ? "PASSED"
-                                    : "FAILED"}
+                                {tripleResult.method === "dual-validated"
+                                    ? "DUAL VALIDATION PASSED"
+                                    : tripleResult.method === "ast-based"
+                                    ? "AST FALLBACK PASSED"
+                                    : tripleResult.method === "ollama-fallback"
+                                    ? "OLLAMA FALLBACK PASSED"
+                                    : "VALIDATION FAILED"}
                             </div>
+                            {tripleResult.error && (
+                                <p className="text-red-500">
+                                    Error: {tripleResult.error}
+                                </p>
+                            )}
+                            {tripleResult.failedConverter && (
+                                <p>
+                                    Failed Converter: {tripleResult.failedConverter}
+                                </p>
+                            )}
                             <p><strong>Python Output</strong></p>
                             <pre>{tripleResult.pythonOutput ?? ""}</pre>
                             <p><strong>AST C++ Output</strong></p>

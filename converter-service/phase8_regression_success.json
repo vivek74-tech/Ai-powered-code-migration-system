@@ -1,0 +1,461 @@
+{
+  "negative_floor_division": {
+    "validated": true,
+    "status": "PASS",
+    "method": "ast-based",
+    "ast_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nstd::string py_input() { std::string s; if (!std::getline(std::cin, s)) throw std::runtime_error(\"input failed\"); return s; }\n\nint py_floor_div(int a, int b) { if (b == 0) throw std::runtime_error(\"division by zero\"); int q = a / b, r = a % b; return q - ((r != 0) && ((r < 0) != (b < 0))); }\n\nint main() {\n    long long a = std::stoll(py_input());\n    long long b = std::stoll(py_input());\n    std::cout << py_floor_div(a, b) << std::endl;\n    return 0;\n}",
+    "ollama_cpp": "#include <iostream>\nusing namespace std;\n\nint main() {\n    long long a, b;\n    cin >> a >> b;\n    cout << a / b << endl;\n    return 0;\n}",
+    "ast_report": {
+      "status": "PASS",
+      "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+      "test_source": "manual",
+      "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+      "passed": 4,
+      "total": 4,
+      "tests": [
+        {
+          "name": "manual-1",
+          "stdin": "10\n3\n",
+          "python_seconds": 0.266,
+          "cpp_seconds": 1.125,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-2",
+          "stdin": "-10\n3\n",
+          "python_seconds": 0.25,
+          "cpp_seconds": 1.016,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-3",
+          "stdin": "10\n-3\n",
+          "python_seconds": 0.265,
+          "cpp_seconds": 1.031,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-4",
+          "stdin": "-10\n-3\n",
+          "python_seconds": 0.266,
+          "cpp_seconds": 1.063,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        }
+      ]
+    },
+    "ollama_report": {
+      "status": "FAIL",
+      "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+      "test_source": "manual",
+      "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+      "passed": 2,
+      "total": 4,
+      "tests": [
+        {
+          "name": "manual-1",
+          "stdin": "10\n3\n",
+          "python_seconds": 0.359,
+          "cpp_seconds": 0.438,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-2",
+          "stdin": "-10\n3\n",
+          "python_seconds": 0.266,
+          "cpp_seconds": 0.437,
+          "status": "FAIL",
+          "reason": "stdout mismatch",
+          "python_output": "-4\n",
+          "cpp_output": "-3\n"
+        },
+        {
+          "name": "manual-3",
+          "stdin": "10\n-3\n",
+          "python_seconds": 0.219,
+          "cpp_seconds": 0.437,
+          "status": "FAIL",
+          "reason": "stdout mismatch",
+          "python_output": "-4\n",
+          "cpp_output": "-3\n"
+        },
+        {
+          "name": "manual-4",
+          "stdin": "-10\n-3\n",
+          "python_seconds": 0.25,
+          "cpp_seconds": 0.438,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        }
+      ]
+    },
+    "errors": {},
+    "repair_history": [
+      {
+        "attempt": 1,
+        "before_status": "FAIL",
+        "diagnostic": "C++ stdout differs from Python stdout. Preserve whitespace, spaces, and trailing newlines exactly.\nstdin: '-10\\n3\\n'\nexpected Python stdout: '-4\\n'\nactual C++ stdout: '-3\\n'",
+        "outcome": "candidate generated; revalidation required"
+      },
+      {
+        "attempt": 2,
+        "before_status": "FAIL",
+        "diagnostic": "C++ stdout differs from Python stdout. Preserve whitespace, spaces, and trailing newlines exactly.\nstdin: '-10\\n3\\n'\nexpected Python stdout: '-4\\n'\nactual C++ stdout: '-3\\n'",
+        "outcome": "no usable change"
+      }
+    ],
+    "validation_scope": "selected tests only; not proof of semantic equivalence"
+  },
+  "modulo_negative": {
+    "validated": true,
+    "status": "PASS",
+    "method": "ollama-fallback",
+    "ast_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nstd::string py_input() { std::string s; if (!std::getline(std::cin, s)) throw std::runtime_error(\"input failed\"); return s; }\n\nint main() {\n    long long a = std::stoll(py_input());\n    long long b = std::stoll(py_input());\n    std::cout << a % b << std::endl;\n    return 0;\n}",
+    "ollama_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    long long a, b;\n    cin >> a >> b;\n    long long r = a % b;\n    if (r != 0 && ((r > 0) != (b > 0))) r += b;\n    cout << r << endl;\n    return 0;\n}",
+    "ast_report": {
+      "status": "FAIL",
+      "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+      "test_source": "manual",
+      "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+      "passed": 2,
+      "total": 4,
+      "tests": [
+        {
+          "name": "manual-1",
+          "stdin": "10\n3\n",
+          "python_seconds": 0.328,
+          "cpp_seconds": 1.156,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-2",
+          "stdin": "-10\n3\n",
+          "python_seconds": 0.219,
+          "cpp_seconds": 1.109,
+          "status": "FAIL",
+          "reason": "stdout mismatch",
+          "python_output": "2\n",
+          "cpp_output": "-1\n"
+        },
+        {
+          "name": "manual-3",
+          "stdin": "10\n-3\n",
+          "python_seconds": 0.25,
+          "cpp_seconds": 1.11,
+          "status": "FAIL",
+          "reason": "stdout mismatch",
+          "python_output": "-2\n",
+          "cpp_output": "1\n"
+        },
+        {
+          "name": "manual-4",
+          "stdin": "-10\n-3\n",
+          "python_seconds": 0.234,
+          "cpp_seconds": 1.109,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        }
+      ]
+    },
+    "ollama_report": {
+      "status": "PASS",
+      "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+      "test_source": "manual",
+      "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+      "passed": 4,
+      "total": 4,
+      "tests": [
+        {
+          "name": "manual-1",
+          "stdin": "10\n3\n",
+          "python_seconds": 0.328,
+          "cpp_seconds": 1.203,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-2",
+          "stdin": "-10\n3\n",
+          "python_seconds": 0.25,
+          "cpp_seconds": 1.11,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-3",
+          "stdin": "10\n-3\n",
+          "python_seconds": 0.25,
+          "cpp_seconds": 1.062,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-4",
+          "stdin": "-10\n-3\n",
+          "python_seconds": 0.235,
+          "cpp_seconds": 1.093,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        }
+      ]
+    },
+    "errors": {},
+    "repair_history": [],
+    "validation_scope": "selected tests only; not proof of semantic equivalence"
+  },
+  "large_integer": {
+    "validated": true,
+    "status": "PASS",
+    "method": "dual-validated",
+    "ast_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nstd::string py_input() { std::string s; if (!std::getline(std::cin, s)) throw std::runtime_error(\"input failed\"); return s; }\n\nint main() {\n    long long n = std::stoll(py_input());\n    std::cout << n + 1 << std::endl;\n    return 0;\n}",
+    "ollama_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    long long n;\n    cin >> n;\n    cout << n + 1 << endl;\n    return 0;\n}",
+    "ast_report": {
+      "status": "PASS",
+      "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+      "test_source": "manual",
+      "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+      "passed": 4,
+      "total": 4,
+      "tests": [
+        {
+          "name": "manual-1",
+          "stdin": "0\n",
+          "python_seconds": 0.235,
+          "cpp_seconds": 1.093,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-2",
+          "stdin": "-1\n",
+          "python_seconds": 0.25,
+          "cpp_seconds": 1.0,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-3",
+          "stdin": "2147483647\n",
+          "python_seconds": 0.25,
+          "cpp_seconds": 1.032,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-4",
+          "stdin": "1000000000000\n",
+          "python_seconds": 0.234,
+          "cpp_seconds": 1.078,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        }
+      ]
+    },
+    "ollama_report": {
+      "status": "PASS",
+      "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+      "test_source": "manual",
+      "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+      "passed": 4,
+      "total": 4,
+      "tests": [
+        {
+          "name": "manual-1",
+          "stdin": "0\n",
+          "python_seconds": 0.312,
+          "cpp_seconds": 1.078,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-2",
+          "stdin": "-1\n",
+          "python_seconds": 0.235,
+          "cpp_seconds": 1.015,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-3",
+          "stdin": "2147483647\n",
+          "python_seconds": 0.235,
+          "cpp_seconds": 1.031,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-4",
+          "stdin": "1000000000000\n",
+          "python_seconds": 0.234,
+          "cpp_seconds": 1.0,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        }
+      ]
+    },
+    "errors": {},
+    "repair_history": [],
+    "validation_scope": "selected tests only; not proof of semantic equivalence"
+  },
+  "nested_conditions": {
+    "validated": true,
+    "status": "PASS",
+    "method": "dual-validated",
+    "ast_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nstd::string py_input() { std::string s; if (!std::getline(std::cin, s)) throw std::runtime_error(\"input failed\"); return s; }\n\nint main() {\n    long long n = std::stoll(py_input());\n    if (n > 0) {\n        if (n % 2 == 0) {\n            std::cout << \"positive even\" << std::endl;\n        } else {\n            std::cout << \"positive odd\" << std::endl;\n        }\n    } else {\n        std::cout << \"non-positive\" << std::endl;\n    }\n    return 0;\n}",
+    "ollama_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    long long n;\n    cin >> n;\n    if (n > 0) {\n        if (n % 2 == 0) {\n            cout << \"positive even\\n\";\n        } else {\n            cout << \"positive odd\\n\";\n        }\n    } else {\n        cout << \"non-positive\\n\";\n    }\n    return 0;\n}",
+    "ast_report": {
+      "status": "PASS",
+      "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+      "test_source": "manual",
+      "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+      "passed": 4,
+      "total": 4,
+      "tests": [
+        {
+          "name": "manual-1",
+          "stdin": "0\n",
+          "python_seconds": 0.235,
+          "cpp_seconds": 1.062,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-2",
+          "stdin": "-2\n",
+          "python_seconds": 0.203,
+          "cpp_seconds": 1.047,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-3",
+          "stdin": "3\n",
+          "python_seconds": 0.219,
+          "cpp_seconds": 1.047,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-4",
+          "stdin": "4\n",
+          "python_seconds": 0.218,
+          "cpp_seconds": 0.985,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        }
+      ]
+    },
+    "ollama_report": {
+      "status": "PASS",
+      "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+      "test_source": "manual",
+      "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+      "passed": 4,
+      "total": 4,
+      "tests": [
+        {
+          "name": "manual-1",
+          "stdin": "0\n",
+          "python_seconds": 0.328,
+          "cpp_seconds": 1.063,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-2",
+          "stdin": "-2\n",
+          "python_seconds": 0.25,
+          "cpp_seconds": 1.125,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-3",
+          "stdin": "3\n",
+          "python_seconds": 0.281,
+          "cpp_seconds": 1.078,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-4",
+          "stdin": "4\n",
+          "python_seconds": 0.234,
+          "cpp_seconds": 1.141,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        }
+      ]
+    },
+    "errors": {},
+    "repair_history": [],
+    "validation_scope": "selected tests only; not proof of semantic equivalence"
+  },
+  "string_whitespace": {
+    "validated": true,
+    "status": "PASS",
+    "method": "ollama-fallback",
+    "ast_cpp": null,
+    "ollama_cpp": "#include <iostream>\n#include <string>\n#include <algorithm>\n\nint main() {\n    std::string s;\n    std::getline(std::cin, s);\n    std::transform(s.begin(), s.end(), s.begin(), ::toupper);\n    std::cout << s << std::endl;\n    std::cout << s.length() << std::endl;\n    return 0;\n}",
+    "ast_report": null,
+    "ollama_report": {
+      "status": "PASS",
+      "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+      "test_source": "manual",
+      "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+      "passed": 4,
+      "total": 4,
+      "tests": [
+        {
+          "name": "manual-1",
+          "stdin": "\n",
+          "python_seconds": 0.297,
+          "cpp_seconds": 0.5,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-2",
+          "stdin": "hello world\n",
+          "python_seconds": 0.219,
+          "cpp_seconds": 0.453,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-3",
+          "stdin": "  hi  \n",
+          "python_seconds": 0.25,
+          "cpp_seconds": 0.422,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        },
+        {
+          "name": "manual-4",
+          "stdin": "a b c\n",
+          "python_seconds": 0.25,
+          "cpp_seconds": 0.484,
+          "status": "PASS",
+          "reason": "Matching stdout and successful exit for this test"
+        }
+      ]
+    },
+    "errors": {
+      "ast": "Unsupported function call"
+    },
+    "repair_history": [
+      {
+        "attempt": 1,
+        "before_status": "FAIL",
+        "diagnostic": "C++ compilation error:\n/sandbox/main.cpp: In function 'int main()':\n/sandbox/main.cpp:7:23: error: invalid initialization of reference of type 'std::ios_base&' from expression of type 'std::string' {aka 'std::__cxx11::basic_string<char>'}\n    7 |     cout << uppercase(s) << endl;\n      |                       ^\nIn file included from /usr/local/include/c++/14.4.0/streambuf:43,\n                 from /usr/local/include/c++/14.4.0/bits/streambuf_iterator.h:35,\n                 from /usr/local/include/c++/14.4.0/iterator:66,\n                 from /usr/local/include/c++/14.4.0/x86_64-linux-gnu/bits/stdc++.h:54,\n                 from /sandbox/main.cpp:1:\n/usr/local/include/c++/14.4.0/bits/ios_base.h:1021:23: note: in passing argument 1 of 'std::ios_base& std::uppercase(ios_base&)'\n 1021 |   uppercase(ios_base& __base)\n      |             ~~~~~~~~~~^~~~~~\n",
+        "outcome": "candidate generated; revalidation required"
+      }
+    ],
+    "validation_scope": "selected tests only; not proof of semantic equivalence"
+  }
+}
