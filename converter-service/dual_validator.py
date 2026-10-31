@@ -1,9 +1,20 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
 import requests
+import time
 
 from converter import PythonToCppConverter
 from ollama_converter import convert_with_ollama, repair_cpp_with_ollama
 
 import os
+
+def log_time(stage, start_time):
+    elapsed = time.perf_counter() - start_time
+    print(f"[TIMING] {stage}: {elapsed:.2f} seconds", flush=True)
 
 WORKER_URL = os.getenv(
     "WORKER_URL",
@@ -14,7 +25,7 @@ def fix_cpp_headers(code):
     import re
 
     if "#include <bits/stdc++.h>" not in code:
-        code = "#include <bits/stdc++.h>\\n" + code
+        code = "#include <bits/stdc++.h>\n" + code
 
     if "using namespace std;" not in code:
         lines = code.splitlines()
@@ -25,10 +36,10 @@ def fix_cpp_headers(code):
                 index = i + 1
 
         lines.insert(index, "using namespace std;")
-        code = "\\n".join(lines)
+        code = "\n".join(lines)
 
     code = re.sub(
-        r"\\bstd::(?=[A-Za-z_])",
+        r"\bstd::(?=[A-Za-z_])",
         "",
         code
     )
@@ -37,6 +48,7 @@ def fix_cpp_headers(code):
 
 
 def execute(language, code, stdin=''):
+    start_time = time.perf_counter()
     response = requests.post(
         WORKER_URL,
         json={"language": language, "code": code, "stdin": stdin},
@@ -44,7 +56,9 @@ def execute(language, code, stdin=''):
         timeout=35
     )
     response.raise_for_status()
-    return response.json()
+    result = response.json()
+    log_time(f'{language} Worker Execution', start_time)
+    return result
 
 
 def validate_dual_conversion(python_code, stdin=''):
@@ -70,9 +84,11 @@ def validate_dual_conversion(python_code, stdin=''):
         return result
 
     try:
+        ast_start = time.perf_counter()
         ast_code = PythonToCppConverter().convert(
             python_code, use_ai_fallback=False
         )
+        log_time('AST Conversion', ast_start)
         result["ast_cpp"] = fix_cpp_headers(ast_code)
 
         ast_run = execute("cpp", result["ast_cpp"], stdin)
@@ -82,24 +98,61 @@ def validate_dual_conversion(python_code, stdin=''):
         pass
 
     try:
+        ai_start = time.perf_counter()
         ai_code = fix_cpp_headers(convert_with_ollama(python_code))
+        log_time('Ollama Conversion', ai_start)
+
         result["ollama_cpp"] = ai_code
 
-        for attempt in range(3):
+        # Maximum 2 C++ execution attempts and 1 repair
+        for attempt in range(2):
+
             ai_run = execute("cpp", ai_code, stdin)
 
             if ai_run.get("success"):
-                result["ollama_output"] = ai_run.get("output", "").strip()
+
+                actual_output = ai_run.get("output", "").strip()
+                result["ollama_output"] = actual_output
+
+                # Check whether C++ output matches Python output
+                if actual_output == result["python_output"]:
+                    break
+
+                error = (
+                    "Output mismatch between Python and C++.\n"
+                    f"Expected output: {result['python_output']!r}\n"
+                    f"Actual output: {actual_output!r}"
+                )
+
+            else:
+                result["ollama_output"] = None
+
+                stage = ai_run.get("stage") or "unknown"
+                error_message = ai_run.get("error") or "C++ execution failed"
+
+                error = (
+                    f"C++ {stage} error:\n{error_message}"
+                )
+
+            # Stop if maximum attempts are completed
+            if attempt == 1:
+                result["error"] = error
+                result["failed_converter"] = "ollama"
                 break
-
-            error = ai_run.get("error") or "C++ execution failed"
-
-            if ai_run.get("stage") != "compilation" or attempt == 2:
-                raise RuntimeError(error)
+            print(f"[DEBUG] 7B Repair Triggered. Attempt: {attempt + 1}, Error: {error}", flush=True)
+            # Ask 7B model to repair the C++ code
+            repair_start = time.perf_counter()
 
             ai_code = fix_cpp_headers(
-                repair_cpp_with_ollama(python_code, ai_code, error)
+                repair_cpp_with_ollama(
+                    python_code,
+                    ai_code,
+                    error
+                )
             )
+
+            log_time('7B Repair', repair_start)
+
             result["ollama_cpp"] = ai_code
 
     except Exception as e:
@@ -127,3 +180,6 @@ def validate_dual_conversion(python_code, stdin=''):
         result["error"] = result["error"] or "No converter produced matching output"
 
     return result
+
+
+

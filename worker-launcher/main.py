@@ -1,25 +1,30 @@
-import threading
+﻿import threading
 import requests.exceptions
 import docker
 import tempfile
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
 import os
 import secrets
-from fastapi import Header
+
 app = FastAPI(title="Local Worker Launcher")
 client = docker.from_env()
+
 execution_slots = threading.BoundedSemaphore(2)
+SHARED_VOLUME = "worker-shared-data"
+
 
 class ExecuteRequest(BaseModel):
     language: str
     code: str = Field(min_length=1, max_length=10000)
-    stdin: str = Field(default="", max_length=4000)
+    stdin: str = Field(default="", max_length=10000)
+
 
 @app.get("/health")
 def health():
     return {"status": "running"}
+
 
 @app.post("/execute")
 def execute(
@@ -39,10 +44,7 @@ def execute(
         raise HTTPException(status_code=400, detail="Unsupported language")
 
     if not execution_slots.acquire(blocking=False):
-        raise HTTPException(
-            status_code=429,
-            detail="Worker busy. Try again later."
-        )
+        raise HTTPException(status_code=429, detail="Worker busy")
 
     try:
         return run_sandbox(request)
@@ -51,23 +53,37 @@ def execute(
 
 
 def run_sandbox(request: ExecuteRequest):
-    with tempfile.TemporaryDirectory() as folder:
+    with tempfile.TemporaryDirectory(dir="/shared") as folder:
+
         source = Path(folder) / (
             "source.py" if request.language == "python" else "main.cpp"
         )
+
         source.write_text(request.code, encoding="utf-8")
+
         stdin_file = Path(folder) / "stdin.txt"
-        stdin_file.write_text(request.stdin, encoding="utf-8")
+        stdin_file.write_bytes(request.stdin.encode("utf-8"))
+
+        # Allow sandbox user to read files
+        os.chmod(folder, 0o755)
+        os.chmod(source, 0o644)
+        os.chmod(stdin_file, 0o644)
+
+        sandbox_folder = f"/shared/{Path(folder).name}"
 
         if request.language == "python":
-            command = ["sh", "-c", "python3 -I -B /sandbox/source.py < /sandbox/stdin.txt"]
+            command = [
+                "sh", "-c",
+                f"python3 -I -B {sandbox_folder}/source.py < {sandbox_folder}/stdin.txt"
+            ]
         else:
             command = [
                 "sh", "-c",
-                "g++ -std=c++17 /sandbox/main.cpp -o /tmp/main || exit 42; /tmp/main < /sandbox/stdin.txt"
+                f"g++ -std=c++17 {sandbox_folder}/main.cpp -o /tmp/main || exit 42; /tmp/main < {sandbox_folder}/stdin.txt"
             ]
 
         container = None
+
         try:
             container = client.containers.run(
                 "code-execution-worker:latest",
@@ -78,16 +94,14 @@ def run_sandbox(request: ExecuteRequest):
                 nano_cpus=1000000000,
                 pids_limit=32,
                 read_only=True,
-                tmpfs={"/tmp": "rw,exec,nosuid,nodev,size=32m"},
+                tmpfs={
+                    "/tmp": "rw,exec,nosuid,nodev,size=32m"
+                },
                 cap_drop=["ALL"],
                 security_opt=["no-new-privileges"],
                 volumes={
-                    str(source.resolve()): {
-                        "bind": "/sandbox/" + source.name,
-                        "mode": "ro"
-                    },
-                    str(stdin_file.resolve()): {
-                        "bind": "/sandbox/stdin.txt",
+                    SHARED_VOLUME: {
+                        "bind": "/shared",
                         "mode": "ro"
                     }
                 },
@@ -102,16 +116,19 @@ def run_sandbox(request: ExecuteRequest):
                     status_code=408,
                     detail="Execution exceeded 25 seconds"
                 )
-            output = container.logs(stdout=True, stderr=False).decode(
-                "utf-8", errors="replace"
-            )[:4000]
-            error = container.logs(stdout=False, stderr=True).decode(
-                "utf-8", errors="replace"
-            )[:4000]
+
+            output = container.logs(
+                stdout=True, stderr=False
+            ).decode("utf-8", errors="replace")[:4000]
+
+            error = container.logs(
+                stdout=False, stderr=True
+            ).decode("utf-8", errors="replace")[:4000]
 
             exit_code = result["StatusCode"]
 
             stage = "execution"
+
             if request.language == "cpp" and exit_code == 42:
                 stage = "compilation"
 
@@ -124,14 +141,18 @@ def run_sandbox(request: ExecuteRequest):
 
         except HTTPException:
             raise
-        except Exception:
+
+        except Exception as e:
+            print("Worker error:", str(e))
             raise HTTPException(
                 status_code=500,
                 detail="Worker execution failed"
             )
+
         finally:
             if container:
                 try:
                     container.remove(force=True)
                 except docker.errors.DockerException:
                     pass
+

@@ -1,0 +1,175 @@
+{
+  "updated_at": "2026-10-30T20:03:22.343522",
+  "completed_rounds": 3,
+  "total_rounds": 3,
+  "records": [
+    {
+      "round": 1,
+      "status": "PASS",
+      "method": "ollama-fallback",
+      "duration_seconds": 49.18,
+      "passed": 4,
+      "total": 4,
+      "generated_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    string s;\n    getline(cin, s);\n    string upper = s;\n    for (char &c : upper) {\n        if (c >= 'a' && c <= 'z') {\n            c = static_cast<char>(c - 'a' + 'A');\n        }\n    }\n    cout << upper << '\\n';\n    cout << s.size() << '\\n';\n    return 0;\n}",
+      "ollama_report": {
+        "status": "PASS",
+        "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+        "test_source": "manual",
+        "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+        "passed": 4,
+        "total": 4,
+        "tests": [
+          {
+            "name": "manual-1",
+            "stdin": "\n",
+            "python_seconds": 8.188,
+            "cpp_seconds": 1.812,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          },
+          {
+            "name": "manual-2",
+            "stdin": "hello world\n",
+            "python_seconds": 0.344,
+            "cpp_seconds": 1.063,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          },
+          {
+            "name": "manual-3",
+            "stdin": "  hello  \n",
+            "python_seconds": 0.296,
+            "cpp_seconds": 1.11,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          },
+          {
+            "name": "manual-4",
+            "stdin": "hello@123! test_C++\n",
+            "python_seconds": 0.297,
+            "cpp_seconds": 1.187,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          }
+        ]
+      },
+      "repair_history": [],
+      "errors": {
+        "ast": "Unsupported function call"
+      },
+      "error": null
+    },
+    {
+      "round": 2,
+      "status": "PASS",
+      "method": "ollama-fallback",
+      "duration_seconds": 24.54,
+      "passed": 4,
+      "total": 4,
+      "generated_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    string s;\n    getline(cin, s);\n    string upper = s;\n    for (char &c : upper) {\n        if (c >= 'a' && c <= 'z') {\n            c = static_cast<char>(c - 'a' + 'A');\n        }\n    }\n    cout << upper << '\\n';\n    cout << s.size() << '\\n';\n    return 0;\n}",
+      "ollama_report": {
+        "status": "PASS",
+        "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+        "test_source": "manual",
+        "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+        "passed": 4,
+        "total": 4,
+        "tests": [
+          {
+            "name": "manual-1",
+            "stdin": "\n",
+            "python_seconds": 0.328,
+            "cpp_seconds": 1.157,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          },
+          {
+            "name": "manual-2",
+            "stdin": "hello world\n",
+            "python_seconds": 0.265,
+            "cpp_seconds": 1.203,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          },
+          {
+            "name": "manual-3",
+            "stdin": "  hello  \n",
+            "python_seconds": 0.25,
+            "cpp_seconds": 1.078,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          },
+          {
+            "name": "manual-4",
+            "stdin": "hello@123! test_C++\n",
+            "python_seconds": 0.25,
+            "cpp_seconds": 1.141,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          }
+        ]
+      },
+      "repair_history": [],
+      "errors": {
+        "ast": "Unsupported function call"
+      },
+      "error": null
+    },
+    {
+      "round": 3,
+      "status": "PASS",
+      "method": "ollama-fallback",
+      "duration_seconds": 24.33,
+      "passed": 4,
+      "total": 4,
+      "generated_cpp": "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    string s;\n    getline(cin, s);\n    string upper = s;\n    for (char &c : upper) {\n        if (c >= 'a' && c <= 'z') {\n            c = static_cast<char>(c - 'a' + 'A');\n        }\n    }\n    cout << upper << '\\n';\n    cout << s.size() << '\\n';\n    return 0;\n}",
+      "ollama_report": {
+        "status": "PASS",
+        "reason": "PASS means only that all selected tests passed; it does not prove equivalence",
+        "test_source": "manual",
+        "generation_note": "Independent heuristic inputs; constraints not guaranteed",
+        "passed": 4,
+        "total": 4,
+        "tests": [
+          {
+            "name": "manual-1",
+            "stdin": "\n",
+            "python_seconds": 0.312,
+            "cpp_seconds": 1.328,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          },
+          {
+            "name": "manual-2",
+            "stdin": "hello world\n",
+            "python_seconds": 0.297,
+            "cpp_seconds": 1.188,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          },
+          {
+            "name": "manual-3",
+            "stdin": "  hello  \n",
+            "python_seconds": 0.265,
+            "cpp_seconds": 1.141,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          },
+          {
+            "name": "manual-4",
+            "stdin": "hello@123! test_C++\n",
+            "python_seconds": 0.281,
+            "cpp_seconds": 1.078,
+            "status": "PASS",
+            "reason": "Matching stdout and successful exit for this test"
+          }
+        ]
+      },
+      "repair_history": [],
+      "errors": {
+        "ast": "Unsupported function call"
+      },
+      "error": null
+    }
+  ]
+}

@@ -11,9 +11,10 @@ class ConversionError(Exception):
 class PythonToCppConverter:
     """A deliberately restricted Python-to-C++17 transpiler (not full Python)."""
 
-    TYPES = {"int": "int", "float": "double", "bool": "bool", "str": "std::string",
-             "list[int]": "std::vector<int>", "list[float]": "std::vector<double>",
-             "set[int]": "std::set<int>", "dict[int,int]": "std::map<int, int>"}
+    TYPES = {"int": "long long", "float": "double", "bool": "bool", "str": "std::string",
+             "list[int]": "std::vector<long long>", "list[float]": "std::vector<double>",
+             "set[int]": "std::set<int>", "dict[int,int]": "std::map<int, int>",
+             "dict[str,int]": "std::map<std::string, long long>"}
 
     def __init__(self):
         self.reset()
@@ -48,9 +49,13 @@ class PythonToCppConverter:
             if node.value.id == "set" and isinstance(node.slice, ast.Name) and node.slice.id == "int":
                 return "set[int]"
             if node.value.id == "dict" and isinstance(node.slice, ast.Tuple) and len(node.slice.elts) == 2:
-                if all(isinstance(x, ast.Name) and x.id == "int" for x in node.slice.elts):
-                    return "dict[int,int]"
-        self.fail("Supported annotations: int, float, bool, str, list[int], list[float], set[int], dict[int,int]")
+                key_type, value_type = node.slice.elts
+                if isinstance(key_type, ast.Name) and isinstance(value_type, ast.Name):
+                    if key_type.id == "int" and value_type.id == "int":
+                        return "dict[int,int]"
+                    if key_type.id == "str" and value_type.id == "int":
+                        return "dict[str,int]"
+        self.fail("Supported annotations: int, float, bool, str, list[int], list[float], set[int], dict[int,int], dict[str,int]")
 
     def lookup(self, name):
         for scope in reversed(self.scopes):
@@ -76,9 +81,16 @@ class PythonToCppConverter:
             return "std::set<int>{" + ", ".join(v for v, _ in values) + "}", "set[int]"
         if isinstance(node, ast.Dict):
             pairs = [(self.expression(k), self.expression(v)) for k, v in zip(node.keys, node.values) if k is not None]
-            if len(pairs) != len(node.keys) or any(kt != "int" or vt != "int" for (_, kt), (_, vt) in pairs):
-                self.fail("Only dict[int,int] literals supported")
-            return "std::map<int, int>{" + ", ".join("{" + k + ", " + v + "}" for (k, _), (v, _) in pairs) + "}", "dict[int,int]"
+            if len(pairs) != len(node.keys):
+                self.fail("Dictionary unpacking unsupported")
+
+            if all(kt == "int" and vt == "int" for (_, kt), (_, vt) in pairs):
+                return "std::map<int, int>{" + ", ".join("{" + k + ", " + v + "}" for (k, _), (v, _) in pairs) + "}", "dict[int,int]"
+
+            if all(kt == "str" and vt == "int" for (_, kt), (_, vt) in pairs):
+                return "std::map<std::string, long long>{" + ", ".join("{" + k + ", " + v + "}" for (k, _), (v, _) in pairs) + "}", "dict[str,int]"
+
+            self.fail("Supported dictionaries: dict[int,int] and dict[str,int]")
         if isinstance(node, ast.List):
             values = [self.expression(x) for x in node.elts]
             if not values: self.fail("Empty lists need a type annotation")
@@ -90,11 +102,19 @@ class PythonToCppConverter:
         if isinstance(node, ast.Subscript):
             seq, typ = self.expression(node.value)
             index, ityp = self.expression(node.slice)
-            if ityp != "int": self.fail("Index must be integer")
-            if typ.startswith("list["): return f"{seq}.at({index})", typ[5:-1]
-            if typ == "dict[int,int]": return f"{seq}.at({index})", "int"
-            if typ == "str": return f"std::string(1, {seq}.at({index}))", "str"
-            self.fail("Indexing supported for lists, strings and integer dictionaries")
+            if typ.startswith("list["):
+                if ityp != "int": self.fail("List index must be integer")
+                return f"{seq}.at({index})", typ[5:-1]
+            if typ == "dict[int,int]":
+                if ityp != "int": self.fail("Dictionary key must be int")
+                return f"{seq}.at({index})", "int"
+            if typ == "dict[str,int]":
+                if ityp != "str": self.fail("Dictionary key must be str")
+                return f"{seq}.at({index})", "int"
+            if typ == "str":
+                if ityp != "int": self.fail("String index must be integer")
+                return f"std::string(1, {seq}.at({index}))", "str"
+            self.fail("Unsupported indexing operation")
         if isinstance(node, ast.UnaryOp):
             value, typ = self.expression(node.operand)
             if isinstance(node.op, ast.Not): return f"(!({value}))", "bool"
@@ -145,15 +165,20 @@ class PythonToCppConverter:
             if isinstance(node.func, ast.Attribute):
                 obj, typ = self.expression(node.func.value)
                 method = node.func.attr
+                if method == "upper" and typ == "str" and not node.args:
+                    self.helpers.add("upper")
+                    return f"py_upper({obj})", "str"
                 if method == "split" and typ == "str" and not node.args:
                     self.helpers.add("split")
                     return f"py_split({obj})", "list[str]"
                 if method == "pop" and typ == "list[int]" and not node.args:
                     self.helpers.add("pop")
                     return f"py_pop({obj})", "int"
-                if method == "get" and typ == "dict[int,int]" and len(node.args) in (1, 2):
+                if method == "get" and typ in ("dict[int,int]", "dict[str,int]") and len(node.args) in (1, 2):
                     key, kt = self.expression(node.args[0])
-                    if kt != "int": self.fail("Dictionary key must be int")
+                    expected_key_type = "int" if typ == "dict[int,int]" else "str"
+                    if kt != expected_key_type:
+                        self.fail(f"Dictionary key must be {expected_key_type}")
                     default, dt = self.expression(node.args[1]) if len(node.args) == 2 else ("0", "int")
                     if dt != "int": self.fail("Dictionary default must be int")
                     self.helpers.add("dict_get")
@@ -169,6 +194,35 @@ class PythonToCppConverter:
                     self.helpers.add("map_int")
                     return f"py_map_int({value})", "list[int]"
                 if name == "list" and len(node.args) == 1:
+                    inner = node.args[0]
+
+                    # Handle: list(map(int, input().split()))
+                    if (
+                        isinstance(inner, ast.Call)
+                        and isinstance(inner.func, ast.Name)
+                        and inner.func.id == "map"
+                        and len(inner.args) == 2
+                        and isinstance(inner.args[0], ast.Name)
+                        and inner.args[0].id == "int"
+                    ):
+                        split_call = inner.args[1]
+
+                        if (
+                            isinstance(split_call, ast.Call)
+                            and isinstance(split_call.func, ast.Attribute)
+                            and split_call.func.attr == "split"
+                            and isinstance(split_call.func.value, ast.Call)
+                            and isinstance(split_call.func.value.func, ast.Name)
+                            and split_call.func.value.func.id == "input"
+                            and not split_call.func.value.args
+                            and not split_call.func.value.keywords
+                            and not split_call.args
+                            and not split_call.keywords
+                        ):
+                            self.helpers.add("read_int_list")
+                            return "py_read_int_list()", "list[int]"
+
+                    return self.expression(inner)
                     return self.expression(node.args[0])
                 if name == "set" and len(node.args) == 1:
                     val, typ = self.expression(node.args[0])
@@ -187,7 +241,7 @@ class PythonToCppConverter:
                     val, typ = self.expression(node.args[0])
                     if typ not in ("list[int]", "list[float]"): self.fail("sum() requires numeric list")
                     self.includes.add("numeric")
-                    initial_value = "0.0" if typ == "list[float]" else "0"
+                    initial_value = "0.0" if typ == "list[float]" else "0LL"
 
                     cpp_expression = (
                         "([&]() { "
@@ -207,7 +261,7 @@ class PythonToCppConverter:
                     value, typ = self.expression(node.args[0])
                     if name == "int" and typ == "str":
                         self.includes.add("string")
-                        return f"std::stoi({value})", "int"
+                        return f"std::stoll({value})", "int"
                     if name == "float" and typ == "str":
                         self.includes.add("string")
                         return f"std::stod({value})", "float"
@@ -240,7 +294,90 @@ class PythonToCppConverter:
         self.fail(f"Unsupported expression: {type(node).__name__}")
 
     def block(self, nodes, depth):
-        return "\n".join(self.statement(n, depth) for n in nodes)
+        lines = []
+        index = 0
+
+        while index < len(nodes):
+            node = nodes[index]
+
+            # Detect:
+            # n = int(input())
+            # arr = list(map(int, input().split()))
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id == "int"
+                and len(node.value.args) == 1
+                and isinstance(node.value.args[0], ast.Call)
+                and isinstance(node.value.args[0].func, ast.Name)
+                and node.value.args[0].func.id == "input"
+                and index + 1 < len(nodes)
+            ):
+                next_node = nodes[index + 1]
+
+                if (
+                    isinstance(next_node, ast.Assign)
+                    and len(next_node.targets) == 1
+                    and isinstance(next_node.targets[0], ast.Name)
+                    and isinstance(next_node.value, ast.Call)
+                    and isinstance(next_node.value.func, ast.Name)
+                    and next_node.value.func.id == "list"
+                    and len(next_node.value.args) == 1
+                ):
+                    map_call = next_node.value.args[0]
+
+                    if (
+                        isinstance(map_call, ast.Call)
+                        and isinstance(map_call.func, ast.Name)
+                        and map_call.func.id == "map"
+                        and len(map_call.args) == 2
+                        and isinstance(map_call.args[0], ast.Name)
+                        and map_call.args[0].id == "int"
+                    ):
+                        split_call = map_call.args[1]
+
+                        if (
+                            isinstance(split_call, ast.Call)
+                            and isinstance(split_call.func, ast.Attribute)
+                            and split_call.func.attr == "split"
+                            and isinstance(split_call.func.value, ast.Call)
+                            and isinstance(split_call.func.value.func, ast.Name)
+                            and split_call.func.value.func.id == "input"
+                            and not split_call.func.value.args
+                            and not split_call.func.value.keywords
+                            and not split_call.args
+                            and not split_call.keywords
+                        ):
+                            n_name = node.targets[0].id
+                            arr_name = next_node.targets[0].id
+
+                            if (
+                                not any(n_name in scope for scope in self.scopes)
+                                and not any(arr_name in scope for scope in self.scopes)
+                            ):
+                                self.bind(n_name, "int")
+                                self.bind(arr_name, "list[int]")
+
+                                pad = "    " * depth
+                                lines.append(f"{pad}long long {n_name};")
+                                lines.append(f"{pad}cin >> {n_name};")
+                                lines.append(f"{pad}std::vector<long long> {arr_name}({n_name});")
+                                lines.append(
+                                    f"{pad}for (long long i = 0; i < {n_name}; i++) {{"
+                                )
+                                lines.append(f"{pad}    cin >> {arr_name}[i];")
+                                lines.append(f"{pad}}}")
+
+                                index += 2
+                                continue
+
+            lines.append(self.statement(node, depth))
+            index += 1
+
+        return "\n".join(lines)
 
     @staticmethod
     def clean_condition(value):
@@ -270,6 +407,8 @@ class PythonToCppConverter:
             val, vt = self.expression(node.value)
             if typ == "dict[int,int]" and kt == vt == "int":
                 return f"{pad}{obj}[{key}] = {val};"
+            if typ == "dict[str,int]" and kt == "str" and vt == "int":
+                return f"{pad}{obj}[{key}] = {val};"
             if typ.startswith("list[") and kt == "int" and vt == typ[5:-1]:
                 return f"{pad}{obj}.at({key}) = {val};"
             self.fail("Unsupported indexed assignment")
@@ -296,6 +435,34 @@ class PythonToCppConverter:
             if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
                 self.fail("Only simple assignments supported")
             name = node.targets[0].id
+
+            # Handle: a = int(input())
+            is_integer_input = (
+                isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id == "int"
+                and len(node.value.args) == 1
+                and not node.value.keywords
+                and isinstance(node.value.args[0], ast.Call)
+                and isinstance(node.value.args[0].func, ast.Name)
+                and node.value.args[0].func.id == "input"
+                and len(node.value.args[0].args) == 0
+                and not node.value.args[0].keywords
+            )
+
+            if is_integer_input:
+                if any(name in scope for scope in self.scopes):
+                    if self.lookup(name) != "int":
+                        self.fail(f"Cannot change type of {name}")
+
+                    return f"{pad}cin >> {name};"
+
+                self.bind(name, "int")
+                return (
+                    f"{pad}{self.cpp_type('int')} {name};\n"
+                    f"{pad}cin >> {name};"
+                )
+
             value, typ = self.expression(node.value)
             if any(name in scope for scope in self.scopes):
                 old = self.lookup(name)
@@ -313,7 +480,7 @@ class PythonToCppConverter:
             if node.value is None: self.fail("Annotated variables must be initialized")
             if ((isinstance(node.value, ast.List) and not node.value.elts and typ.startswith("list[")) or
                 (isinstance(node.value, ast.Set) and not node.value.elts and typ == "set[int]") or
-                (isinstance(node.value, ast.Dict) and not node.value.keys and typ == "dict[int,int]")):
+                (isinstance(node.value, ast.Dict) and not node.value.keys and typ in ("dict[int,int]", "dict[str,int]"))):
                 value = "{}"; actual = typ
             else: value, actual = self.expression(node.value)
             if actual != typ and not (typ == "float" and actual == "int"):
@@ -332,23 +499,51 @@ class PythonToCppConverter:
             return f"{pad}{name} {op} {value};"
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
             call = node.value
-            if isinstance(call.func, ast.Name) and call.func.id == "print" and not call.keywords:
+
+            if isinstance(call.func, ast.Name) and call.func.id == "print":
+                end_value = "\n"
+
+                for keyword in call.keywords:
+                    if (
+                        keyword.arg != "end"
+                        or not isinstance(keyword.value, ast.Constant)
+                        or not isinstance(keyword.value.value, str)
+                    ):
+                        self.fail("print() supports only a string end argument")
+
+                    end_value = keyword.value.value
+
                 values = [self.expression(arg) for arg in call.args]
-                if not values: return f"{pad}std::cout << std::endl;"
                 parts = []
+
                 for arg, (value, typ) in zip(call.args, values):
                     if typ.startswith("list["):
                         self.helpers.add("print_list")
                         parts.append(f"py_print_list({value})")
                     else:
-                        if (isinstance(arg, ast.Call)
-                                and isinstance(arg.func, ast.Name)
-                                and arg.func.id == "len"
-                                and value.startswith("static_cast<int>(")
-                                and value.endswith(")")):
+                        if (
+                            isinstance(arg, ast.Call)
+                            and isinstance(arg.func, ast.Name)
+                            and arg.func.id == "len"
+                            and value.startswith("static_cast<int>(")
+                            and value.endswith(")")
+                        ):
                             value = value[len("static_cast<int>("):-1]
+
                         parts.append(self.clean_condition(value))
-                return f'{pad}std::cout << ' + ' << " " << '.join(parts) + ' << std::endl;'
+
+                output = f"{pad}std::cout"
+
+                if parts:
+                    output += " << " + ' << " " << '.join(parts)
+
+                if end_value == "\n":
+                    output += " << std::endl"
+                elif end_value:
+                    output += f" << {json.dumps(end_value, ensure_ascii=False)}"
+
+                return output + ";"
+
             if isinstance(call.func, ast.Attribute) and call.func.attr in (
                 "sort", "reverse", "clear"
             ):
@@ -515,15 +710,37 @@ class PythonToCppConverter:
         for name, (args, ret) in self.functions.items():
             declarations.append(f"{self.cpp_type(ret)} {name}({', '.join(self.cpp_type(t) for t in args)});")
         helpers = []
+        if "upper" in self.helpers:
+            helpers.append(
+                "std::string py_upper(std::string s) { "
+                "for (char &c : s) { "
+                "if (c >= 'a' && c <= 'z') c = c - 'a' + 'A'; "
+                "} "
+                "return s; "
+                "}"
+            )
+        if "read_int_list" in self.helpers:
+            self.includes.update(("vector", "sstream", "string"))
+            helpers.append(
+                'std::vector<long long> py_read_int_list() { '
+                'std::string line; '
+                'if (!std::getline(std::cin, line)) throw std::runtime_error("input failed"); '
+                'std::istringstream in(line); '
+                'std::vector<long long> result; '
+                'long long x; '
+                'while (in >> x) result.push_back(x); '
+                'return result; '
+                '}'
+            )
         if "input" in self.helpers:
             self.includes.update(("string", "stdexcept"))
-            helpers.append('std::string py_input() { std::string s; if (!std::getline(std::cin >> std::ws, s)) throw std::runtime_error("input failed"); return s; }')
+            helpers.append('std::string py_input() { std::string s; if (!std::getline(std::cin, s)) throw std::runtime_error("input failed"); return s; }')
         if "split" in self.helpers:
             self.includes.update(("vector", "string", "sstream"))
             helpers.append('std::vector<std::string> py_split(const std::string& s) { std::istringstream in(s); std::vector<std::string> out; std::string x; while (in >> x) out.push_back(x); return out; }')
         if "map_int" in self.helpers:
             self.includes.update(("vector", "string"))
-            helpers.append('std::vector<int> py_map_int(const std::vector<std::string>& xs) { std::vector<int> out; for (const auto& x : xs) out.push_back(std::stoi(x)); return out; }')
+            helpers.append('std::vector<long long> py_map_int(const std::vector<std::string>& xs) { std::vector<long long> out; for (const auto& x : xs) out.push_back(std::stoll(x)); return out; }')
         if "pop" in self.helpers:
             self.includes.update(("vector", "stdexcept"))
             helpers.append('int py_pop(std::vector<int>& xs) { if (xs.empty()) throw std::out_of_range("pop from empty list"); int x = xs.back(); xs.pop_back(); return x; }')
@@ -539,8 +756,9 @@ class PythonToCppConverter:
             self.includes.update(("vector", "algorithm"))
             helpers.append('std::vector<int> py_sorted(std::vector<int> xs) { std::sort(xs.begin(), xs.end()); return xs; }')
         if "dict_get" in self.helpers:
-            self.includes.add("map")
+            self.includes.update(("map", "string"))
             helpers.append('int py_dict_get(const std::map<int, int>& m, int k, int fallback) { auto it = m.find(k); return it == m.end() ? fallback : it->second; }')
+            helpers.append('long long py_dict_get(const std::map<std::string, long long>& m, const std::string& k, long long fallback) { auto it = m.find(k); return it == m.end() ? fallback : it->second; }')
         if "py_floor_div(" in "\n".join(definitions + [main]):
             helpers.append('int py_floor_div(int a, int b) { if (b == 0) throw std::runtime_error("division by zero"); int q = a / b, r = a % b; return q - ((r != 0) && ((r < 0) != (b < 0))); }')
         headers = "#include <bits/stdc++.h>\nusing namespace std;"
@@ -557,14 +775,11 @@ class PythonToCppConverter:
 
             try:
                 from ollama_converter import convert_with_ollama
-                return convert_with_ollama(
-                    code,
-                    validate_behavior=validate_ai_behavior,
-                    max_retries=ai_retries
-                )
+                return convert_with_ollama(code)
             except (RuntimeError, OSError, ValueError) as ai_error:
                 raise ConversionError(
                     f"AST conversion failed: {ast_error}. "
                     f"Ollama fallback failed: {ai_error}",
                     "AI_FALLBACK_FAILED"
                 ) from ai_error
+

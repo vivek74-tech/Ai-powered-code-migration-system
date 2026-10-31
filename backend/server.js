@@ -3,7 +3,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { rateLimit } from "express-rate-limit";
-
+import executionRoutes from "./routes/executionRoutes.js";
 import connectDB from "./config/db.js";
 import migrationRoutes from "./routes/migrationRoutes.js";
 import validationRoutes from "./routes/validationRoutes.js";
@@ -61,12 +61,8 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/migration", executionLimiter, migrationRoutes);
 app.use("/api/validation", executionLimiter, validationRoutes);
-app.use("/api/history", (req, res) => {
-  return res.status(403).json({
-    success: false,
-    message: "History is temporarily disabled for security"
-  });
-});
+app.use("/api/execution", executionLimiter, executionRoutes);
+app.use("/api/history", historyRoutes);
 
 app.use((err, req, res, next) => {
   if (err.type === "entity.too.large") {
